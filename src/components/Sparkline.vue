@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { ref, watchEffect } from 'vue'
 
 const props = defineProps<{ values: number[]; color: string; max?: number }>()
 const canvas = ref<HTMLCanvasElement>()
@@ -32,8 +32,8 @@ function draw() {
   context.stroke()
 }
 
-onMounted(draw)
-watch(() => [...props.values], draw)
+// Reads every value, so it re-runs when the history changes; `post` waits for the canvas.
+watchEffect(draw, { flush: 'post' })
 </script>
 
 <template>

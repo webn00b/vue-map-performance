@@ -2,8 +2,14 @@ import type { FeatureCollection, Point } from 'geojson'
 import type { RenderMode } from '../settings'
 import { Status } from '../simulation/fleet'
 import type { FleetView } from '../state/useCouriers'
-import { Marker, type GeoJSONSource, type Map as MapLibreMap } from './maplibre'
+import {
+  Marker,
+  type GeoJSONFeatureDiff,
+  type GeoJSONSource,
+  type Map as MapLibreMap,
+} from './maplibre'
 
+/** Draws the current state when created, then follows updates. */
 export interface Renderer {
   /** `changed` lists the couriers to update, `null` means all of them. */
   update(changed: Uint32Array | null): void
@@ -31,7 +37,10 @@ function createDomRenderer(map: MapLibreMap, view: FleetView): Renderer {
   const statuses: number[] = []
 
   const resize = () => {
-    while (markers.length > view.count()) markers.pop()!.remove()
+    while (markers.length > view.count()) {
+      markers.pop()!.remove()
+      statuses.pop()
+    }
     while (markers.length < view.count()) {
       const element = document.createElement('div')
       element.className = 'courier-marker'
@@ -50,12 +59,15 @@ function createDomRenderer(map: MapLibreMap, view: FleetView): Renderer {
     }
   }
 
+  const update = (changed: Uint32Array | null) => {
+    resize()
+    if (changed) changed.forEach(place)
+    else for (let i = 0; i < markers.length; i++) place(i)
+  }
+  update(null)
+
   return {
-    update(changed) {
-      resize()
-      if (changed) changed.forEach(place)
-      else for (let i = 0; i < markers.length; i++) place(i)
-    },
+    update,
     destroy() {
       markers.forEach((marker) => marker.remove())
       markers.length = 0
@@ -135,29 +147,63 @@ function createWebglRenderer(
     },
   })
 
-  const source = () => map.getSource<GeoJSONSource>(SOURCE)!
+  const source = map.getSource<GeoJSONSource>(SOURCE)!
+  // Last status sent per courier, so diffs only carry the property when it
+  // changed. Clusters never use diffs, so they skip it.
+  let sentStatuses = cluster ? new Uint8Array() : statusesOf(view)
+  // While MapLibre is still processing a full rebuild, newer ones would be
+  // thrown away, so just remember that another one is due.
+  let rebuilding = false
+  let rebuildAgain = false
+
+  const rebuild = () => {
+    if (rebuilding) {
+      rebuildAgain = true
+      return
+    }
+    rebuilding = true
+    if (!cluster) sentStatuses = statusesOf(view)
+    void source.setData(toFeatureCollection(view)).finally(() => {
+      rebuilding = false
+      if (rebuildAgain) {
+        rebuildAgain = false
+        rebuild()
+      }
+    })
+  }
 
   return {
     update(changed) {
       // Diffs only pay off for a small share of the fleet, and clustering
       // has to re-run over all points anyway.
-      if (changed && !cluster && changed.length < view.count() / 2) {
-        void source().updateData({
-          update: Array.from(changed, (i) => ({
+      if (!changed || cluster || rebuilding || changed.length >= view.count() / 2) {
+        rebuild()
+        return
+      }
+      void source.updateData({
+        update: Array.from(changed, (i) => {
+          const status = view.status(i)
+          const diff: GeoJSONFeatureDiff = {
             id: i,
             newGeometry: { type: 'Point', coordinates: [view.lng(i), view.lat(i)] },
-            addOrUpdateProperties: [{ key: 'status', value: view.status(i) }],
-          })),
-        })
-      } else {
-        void source().setData(toFeatureCollection(view))
-      }
+          }
+          if (sentStatuses[i] !== status) {
+            sentStatuses[i] = status
+            diff.addOrUpdateProperties = [{ key: 'status', value: status }]
+          }
+          return diff
+        }),
+      })
     },
     destroy() {
       for (const id of LAYERS) if (map.getLayer(id)) map.removeLayer(id)
       if (map.getSource(SOURCE)) map.removeSource(SOURCE)
     },
   }
+}
+
+function statusesOf(view: FleetView): Uint8Array {
+  return Uint8Array.from({ length: view.count() }, (_, i) => view.status(i))
 }
 
 function toFeatureCollection(view: FleetView): FeatureCollection<Point> {

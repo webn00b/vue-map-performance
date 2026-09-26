@@ -25,13 +25,14 @@ interface ChromePerformance extends Performance {
 /** Samples page performance once a second. Keep one instance per page. */
 export function useMetrics() {
   const metrics = reactive<Metrics>(emptyMetrics())
-  const frames = createTimeWindow(1000)
+  // The one-second interval below defines the FPS window.
+  let frames = 0
   const secondsOfFps = createTimeWindow(WINDOW_MS)
   const longTasks = createTimeWindow(WINDOW_MS)
   const flushes = createTimeWindow(WINDOW_MS)
 
-  let frame = requestAnimationFrame(function count(time) {
-    frames.add(time, 1)
+  let frame = requestAnimationFrame(function count() {
+    frames++
     frame = requestAnimationFrame(count)
   })
 
@@ -48,7 +49,8 @@ export function useMetrics() {
 
   const timer = setInterval(() => {
     const now = performance.now()
-    const fps = frames.stats(now).count
+    const fps = frames
+    frames = 0
     secondsOfFps.add(now, fps)
 
     const fpsWindow = secondsOfFps.stats(now)

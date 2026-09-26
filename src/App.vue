@@ -1,35 +1,35 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, shallowRef, watch, type WatchStopHandle } from 'vue'
+import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import ControlPanel from './components/ControlPanel.vue'
 import CourierList from './components/CourierList.vue'
 import MetricsPanel from './components/MetricsPanel.vue'
-import { AttributionControl, Map as MapLibreMap } from './map/maplibre'
+import { Map as MapLibreMap } from './map/maplibre'
 import { createRenderer, type Renderer } from './map/renderers'
 import { useMetrics } from './metrics/useMetrics'
-import { enforceLimits, parseSettings, serializeSettings } from './settings'
+import { normalizeSettings, parseSettings, serializeSettings, type Settings } from './settings'
 import { MOSCOW_CENTER } from './simulation/city'
 import type { WorkerCommand, WorkerMessage } from './simulation/worker'
 import { useCouriers } from './state/useCouriers'
 
-const initial = enforceLimits(parseSettings(location.search))
+/** Keep in sync with the media query in the styles below. */
+const NARROW_SCREEN = '(max-width: 720px)'
+
+const initial = parseSettings(location.search)
 const settings = ref(initial.settings)
 const notice = ref(initial.notice)
 const error = ref<string>()
-const listOpen = ref(window.innerWidth > 720)
+const listOpen = ref(!window.matchMedia(NARROW_SCREEN).matches)
 
-watch(
-  settings,
-  (value) => {
-    const limited = enforceLimits(value)
-    if (limited.settings !== value) {
-      settings.value = limited.settings
-      notice.value = limited.notice
-      return
-    }
-    history.replaceState(null, '', serializeSettings(value) || location.pathname)
-  },
-  { deep: true, immediate: true },
-)
+function applyChange(patch: Partial<Settings>) {
+  const next = normalizeSettings({ ...settings.value, ...patch })
+  settings.value = next.settings
+  if (next.notice) notice.value = next.notice
+}
+
+const syncUrl = (value: Settings) =>
+  history.replaceState(null, '', serializeSettings(value) || location.pathname)
+syncUrl(settings.value)
+watch(settings, syncUrl)
 
 const { metrics, recordFlush, reset: resetMetrics } = useMetrics()
 
@@ -47,23 +47,28 @@ worker.onerror = () => {
   error.value = 'The simulation worker failed to start. Try reloading the page.'
 }
 
+// Only these settings need a new fleet; switching the renderer keeps it running.
 watch(
-  () => {
-    const { count, seed, feed, interval, state } = settings.value
-    return { count, seed, feed, interval, state }
-  },
-  (current, previous) => {
-    if (current.state !== previous?.state) {
-      store.value = useCouriers(current.state, recordFlush)
+  [
+    () => settings.value.count,
+    () => settings.value.seed,
+    () => settings.value.feed,
+    () => settings.value.interval,
+    () => settings.value.state,
+  ],
+  ([count, seed, feed, interval, state], previous) => {
+    if (state !== previous?.[4]) {
+      store.value.dispose()
+      store.value = useCouriers(state, recordFlush)
     }
     run++
     worker.postMessage({
       type: 'start',
       run,
-      count: current.count,
-      seed: current.seed,
-      mode: current.feed,
-      snapshotIntervalMs: current.interval * 1000,
+      count,
+      seed,
+      mode: feed,
+      snapshotIntervalMs: interval * 1000,
     } satisfies WorkerCommand)
     resetMetrics()
   },
@@ -72,11 +77,12 @@ watch(
 
 // --- Map ----------------------------------------------------------------------
 
+const MAP_ERROR = 'The map failed to load. Check the connection and reload.'
 const container = ref<HTMLElement>()
 const mapReady = ref(false)
 let map: MapLibreMap | undefined
 let renderer: Renderer | undefined
-let stopListening: WatchStopHandle | undefined
+let stopListening: (() => void) | undefined
 
 onMounted(() => {
   map = new MapLibreMap({
@@ -84,16 +90,15 @@ onMounted(() => {
     style: 'https://tiles.openfreemap.org/styles/positron',
     center: MOSCOW_CENTER,
     zoom: 10,
-    attributionControl: false,
   })
-  // On narrow screens the settings sheet covers the bottom edge, and the
-  // OpenStreetMap attribution has to stay visible.
-  const narrow = window.matchMedia('(max-width: 720px)').matches
-  map.addControl(new AttributionControl({ compact: true }), narrow ? 'top-left' : 'bottom-right')
-  map.on('load', () => (mapReady.value = true))
+  map.on('load', () => {
+    mapReady.value = true
+    // A tile that failed while loading doesn't matter once the map is up.
+    if (error.value === MAP_ERROR) error.value = undefined
+  })
   map.on('error', (event) => {
     console.error(event.error)
-    if (!mapReady.value) error.value = 'The map failed to load. Check the connection and reload.'
+    if (!mapReady.value) error.value = MAP_ERROR
   })
 })
 
@@ -103,7 +108,6 @@ watch([mapReady, store, () => settings.value.render], ([ready, current, mode]) =
   if (!ready || !map) return
 
   renderer = createRenderer(mode, map, current.view)
-  renderer.update(null)
   stopListening = current.onChange((changed) => renderer!.update(changed))
   resetMetrics()
 })
@@ -132,10 +136,7 @@ onBeforeUnmount(() => {
     <p v-if="notice" class="notice" role="status">
       {{ notice }} <button type="button" @click="notice = undefined">×</button>
     </p>
-    <ControlPanel
-      :settings="settings"
-      @change="(patch) => (settings = { ...settings, ...patch })"
-    />
+    <ControlPanel :settings="settings" @change="applyChange" />
     <MetricsPanel :metrics="metrics" />
     <footer class="muted">
       <a href="https://github.com/webn00b/vue-map-performance">Source on GitHub</a>
@@ -241,19 +242,24 @@ p {
   color: #fff;
 }
 
+/* Keep in sync with NARROW_SCREEN. The map only covers the area above the
+   settings sheet, so its controls and flyTo() stay in the visible part. */
 @media (max-width: 720px) {
+  .map {
+    bottom: 45%;
+  }
+
   .settings {
     top: auto;
     bottom: 0;
     left: 0;
     width: 100%;
-    max-height: 45%;
-    border-radius: 8px 8px 0 0;
+    height: 45%;
+    max-height: none;
+    border-radius: 0;
   }
 
-  /* Leaves room for the attribution, which MapLibre shows expanded on load. */
   .couriers {
-    top: 48px;
     right: 12px;
     width: calc(100% - 24px);
     height: auto;

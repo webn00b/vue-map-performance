@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { MOSCOW } from '../src/simulation/city'
+import { MAX_SPEED, METERS_PER_DEGREE } from '../src/simulation/fleet'
 import {
   createFeed,
   REPORT_INTERVAL_MS,
@@ -12,7 +13,10 @@ const options = { count: 300, seed: 11, snapshotIntervalMs: 3000, bounds: MOSCOW
 
 function run(feed: ReturnType<typeof createFeed>, ms: number): FeedMessage[] {
   const out: FeedMessage[] = []
-  for (let t = 0; t < ms; t += TICK_MS) out.push(...feed.tick())
+  for (let t = 0; t < ms; t += TICK_MS) {
+    const message = feed.tick()
+    if (message) out.push(message)
+  }
   return out
 }
 
@@ -53,10 +57,10 @@ describe('stream mode', () => {
     const [full] = run(snapshot, 2000)
 
     // Each courier reported within the last interval, so the stream can lag the
-    // snapshot by at most one interval of movement at top speed.
-    const maxSpeed = 16 // m/s
-    const maxLagMeters = maxSpeed * TIME_SCALE * (REPORT_INTERVAL_MS / 1000)
-    const metersPerDegreeLng = 111_320 * Math.cos((MOSCOW.south * Math.PI) / 180)
+    // snapshot by at most one interval of movement at top speed. A degree of
+    // longitude is shortest at the northern edge, which gives the widest bound.
+    const maxLagMeters = MAX_SPEED * TIME_SCALE * (REPORT_INTERVAL_MS / 1000)
+    const metersPerDegreeLng = METERS_PER_DEGREE * Math.cos((MOSCOW.north * Math.PI) / 180)
     const maxLagDegrees = maxLagMeters / metersPerDegreeLng
     state.forEach((value, i) => {
       expect(Math.abs(value - full!.positions[i]!)).toBeLessThan(maxLagDegrees)

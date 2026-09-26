@@ -1,17 +1,16 @@
 import { MOSCOW } from './city'
-import { createFeed, TICK_MS, type FeedMessage, type FeedMode } from './feed'
+import type { FeedMode } from '../settings'
+import { createFeed, TICK_MS, type FeedMessage } from './feed'
 
-export type WorkerCommand =
-  | {
-      type: 'start'
-      /** Echoed back with every message, so the page can drop messages from a previous run. */
-      run: number
-      count: number
-      seed: number
-      mode: FeedMode
-      snapshotIntervalMs: number
-    }
-  | { type: 'stop' }
+export interface WorkerCommand {
+  type: 'start'
+  /** Echoed back with every message, so the page can drop messages from a previous run. */
+  run: number
+  count: number
+  seed: number
+  mode: FeedMode
+  snapshotIntervalMs: number
+}
 
 export interface WorkerMessage {
   run: number
@@ -23,7 +22,6 @@ let timer: ReturnType<typeof setInterval> | undefined
 self.onmessage = (event: MessageEvent<WorkerCommand>) => {
   clearInterval(timer)
   const command = event.data
-  if (command.type === 'stop') return
 
   const feed = createFeed({ ...command, bounds: MOSCOW })
   const post = (message: FeedMessage) => {
@@ -34,5 +32,8 @@ self.onmessage = (event: MessageEvent<WorkerCommand>) => {
   }
 
   post(feed.initial())
-  timer = setInterval(() => feed.tick(TICK_MS).forEach(post), TICK_MS)
+  timer = setInterval(() => {
+    const message = feed.tick(TICK_MS)
+    if (message) post(message)
+  }, TICK_MS)
 }

@@ -3,13 +3,6 @@ import type { StateMode } from '../settings'
 import type { FeedMessage } from '../simulation/feed'
 import type { Status } from '../simulation/fleet'
 
-export interface Courier {
-  id: number
-  lng: number
-  lat: number
-  status: Status
-}
-
 /** Read access that renderers and the list use, regardless of how the state is stored. */
 export interface FleetView {
   count(): number
@@ -27,7 +20,18 @@ export interface CourierStore {
   receive(message: FeedMessage): void
   /** Applies queued messages now and resolves after Vue has flushed the resulting updates. */
   flush(): Promise<void>
-  onChange(listener: ChangeListener): WatchStopHandle
+  onChange(listener: ChangeListener): () => void
+  /** Drops queued messages and pending work, e.g. when the store is replaced. */
+  dispose(): void
+}
+
+interface Backend {
+  view: FleetView
+  /** Applies a frame's worth of messages. */
+  apply(messages: FeedMessage[]): void
+  /** Called once Vue has flushed, to tell listeners what changed. */
+  notify(): void
+  onChange(listener: ChangeListener): () => void
 }
 
 /**
@@ -39,41 +43,61 @@ export interface CourierStore {
  *   with `triggerRef()`. Vue tracks one reference instead of every field.
  */
 export function useCouriers(mode: StateMode, onFlushed?: (ms: number) => void): CourierStore {
-  const store = mode === 'deep' ? createDeepStore() : createShallowStore()
+  const backend = mode === 'deep' ? createDeepStore() : createShallowStore()
   let queue: FeedMessage[] = []
-  let frame: number | undefined
+  let scheduled: (() => void) | undefined
 
   const flush = async () => {
-    if (frame !== undefined) cancelAnimationFrame(frame)
-    frame = undefined
+    scheduled?.()
+    scheduled = undefined
     if (queue.length === 0) return
 
     const started = performance.now()
     const messages = queue
     queue = []
-    messages.forEach(store.apply)
+    backend.apply(messages)
     await nextTick()
-    store.settle()
+    backend.notify()
+    // Covers applying the data, Vue's updates and the renderers' own work. What
+    // MapLibre does after `setData`/`updateData` returns is left out in both modes.
     onFlushed?.(performance.now() - started)
   }
 
+  // Background tabs don't run animation frames, so fall back to a timer there
+  // instead of letting the queue grow until the tab is visible again.
+  const schedule = () => {
+    if (document.hidden) {
+      const timer = setTimeout(() => void flush(), 1000)
+      return () => clearTimeout(timer)
+    }
+    const frame = requestAnimationFrame(() => void flush())
+    return () => cancelAnimationFrame(frame)
+  }
+
   return {
-    view: store.view,
-    onChange: store.onChange,
+    view: backend.view,
+    onChange: backend.onChange,
     flush,
     receive(message) {
-      queue.push(message)
-      frame ??= requestAnimationFrame(() => void flush())
+      // A snapshot replaces everything, so whatever is still queued is moot.
+      if (message.type === 'snapshot') queue = [message]
+      else queue.push(message)
+      scheduled ??= schedule()
+    },
+    dispose() {
+      scheduled?.()
+      scheduled = undefined
+      queue = []
     },
   }
 }
 
-interface Backend {
-  view: FleetView
-  apply(message: FeedMessage): void
-  /** Called after all listeners have seen the changes of a flush. */
-  settle(): void
-  onChange(listener: ChangeListener): WatchStopHandle
+interface Courier {
+  // Not read by the demo, but this is what such objects usually carry.
+  id: number
+  lng: number
+  lat: number
+  status: Status
 }
 
 function createDeepStore(): Backend {
@@ -86,44 +110,42 @@ function createDeepStore(): Backend {
       lat: (i) => couriers.value[i]!.lat,
       status: (i) => couriers.value[i]!.status,
     },
-    apply(message) {
-      if (message.type === 'snapshot') {
-        couriers.value = Array.from(message.statuses, (status, i) => ({
-          id: i,
-          lng: message.positions[i * 2]!,
-          lat: message.positions[i * 2 + 1]!,
-          status: status as Status,
-        }))
-        return
+    apply(messages) {
+      for (const message of messages) {
+        if (message.type === 'snapshot') {
+          couriers.value = Array.from(message.statuses, (status, i) => ({
+            id: i,
+            lng: message.positions[i * 2]!,
+            lat: message.positions[i * 2 + 1]!,
+            status: status as Status,
+          }))
+          continue
+        }
+        message.indices.forEach((id, k) => {
+          const courier = couriers.value[id]!
+          courier.lng = message.positions[k * 2]!
+          courier.lat = message.positions[k * 2 + 1]!
+          courier.status = message.statuses[k] as Status
+        })
       }
-      message.indices.forEach((id, k) => {
-        const courier = couriers.value[id]!
-        courier.lng = message.positions[k * 2]!
-        courier.lat = message.positions[k * 2 + 1]!
-        courier.status = message.statuses[k] as Status
-      })
     },
-    settle() {},
-    // A deep watcher doesn't know what changed, so listeners get `null`.
-    onChange: (listener) => watch(couriers, () => listener(null), { deep: true }),
+    // Listeners hang off a deep watcher, which is the cost being demonstrated.
+    // It can't tell what changed, so they get `null`.
+    notify() {},
+    onChange(listener) {
+      const stop: WatchStopHandle = watch(couriers, () => listener(null), { deep: true })
+      return stop
+    },
   }
 }
 
-interface ShallowState {
-  positions: Float32Array
-  statuses: Uint8Array
-  /** Couriers changed since listeners last ran; `null` means everyone. */
-  changed: Uint32Array | null
-}
-
 function createShallowStore(): Backend {
-  const state = shallowRef<ShallowState>({
-    positions: new Float32Array(),
-    statuses: new Uint8Array(),
-    changed: null,
-  })
-  // True once a flush has settled, so the next delta starts a fresh list of changes.
-  let settled = true
+  const state = shallowRef({ positions: new Float32Array(), statuses: new Uint8Array() })
+  const listeners = new Set<ChangeListener>()
+  // Deduplicates couriers that report more than once within a frame without allocating.
+  let seen = new Uint8Array()
+  let changed = new Uint32Array()
+  let moved: Uint32Array | null | undefined
 
   return {
     view: {
@@ -132,36 +154,47 @@ function createShallowStore(): Backend {
       lat: (i) => state.value.positions[i * 2 + 1]!,
       status: (i) => state.value.statuses[i] as Status,
     },
-    apply(message) {
-      if (message.type === 'snapshot') {
-        state.value = { positions: message.positions, statuses: message.statuses, changed: null }
-        settled = false
-        return
-      }
-      const { positions, statuses } = state.value
-      message.indices.forEach((id, k) => {
-        positions[id * 2] = message.positions[k * 2]!
-        positions[id * 2 + 1] = message.positions[k * 2 + 1]!
-        statuses[id] = message.statuses[k]!
+    apply(messages) {
+      let last = -1
+      messages.forEach((message, i) => {
+        if (message.type === 'snapshot') last = i
       })
-      // Several messages can land in one frame. Merge deltas; after a snapshot
-      // everything has changed anyway, so keep `null`.
-      if (settled) {
-        state.value.changed = message.indices
-        settled = false
-      } else if (state.value.changed) {
-        state.value.changed = mergeIndices(state.value.changed, message.indices)
+      if (last !== -1) {
+        const snapshot = messages[last] as Extract<FeedMessage, { type: 'snapshot' }>
+        state.value = { positions: snapshot.positions, statuses: snapshot.statuses }
+        seen = new Uint8Array(snapshot.statuses.length)
+        changed = new Uint32Array(snapshot.statuses.length)
       }
+
+      const { positions, statuses } = state.value
+      let length = 0
+      for (const message of messages.slice(last + 1)) {
+        if (message.type !== 'delta') continue
+        message.indices.forEach((id, k) => {
+          positions[id * 2] = message.positions[k * 2]!
+          positions[id * 2 + 1] = message.positions[k * 2 + 1]!
+          statuses[id] = message.statuses[k]!
+          if (!seen[id]) {
+            seen[id] = 1
+            changed[length++] = id
+          }
+        })
+      }
+
+      moved = last === -1 ? changed.subarray(0, length) : null
       triggerRef(state)
     },
-    settle() {
-      state.value.changed = null
-      settled = true
+    notify() {
+      if (moved === undefined) return
+      // `moved` is a view into a reused buffer: listeners must not keep it.
+      const current = moved
+      listeners.forEach((listener) => listener(current))
+      if (current) current.forEach((id) => (seen[id] = 0))
+      moved = undefined
     },
-    onChange: (listener) => watch(state, (value) => listener(value.changed)),
+    onChange(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
   }
-}
-
-function mergeIndices(a: Uint32Array, b: Uint32Array): Uint32Array {
-  return Uint32Array.from(new Set([...a, ...b]))
 }

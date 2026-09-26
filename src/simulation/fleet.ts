@@ -8,9 +8,9 @@ export const Status = {
 } as const
 export type Status = (typeof Status)[keyof typeof Status]
 
-const METERS_PER_DEGREE = 111_320
-const MIN_SPEED = 6 // m/s
-const MAX_SPEED = 16
+export const METERS_PER_DEGREE = 111_320
+export const MIN_SPEED = 6 // m/s
+export const MAX_SPEED = 16
 
 /**
  * Fleet state in flat typed arrays, so a whole update is one allocation-free

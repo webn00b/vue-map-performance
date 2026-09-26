@@ -1,8 +1,7 @@
+import type { FeedMode } from '../settings'
 import type { Bounds } from './city'
 import { createFleet, stepFleet } from './fleet'
 import { createRandom } from './random'
-
-export type FeedMode = 'snapshot' | 'stream'
 
 export interface FeedOptions {
   count: number
@@ -69,21 +68,18 @@ export function createFeed(options: FeedOptions) {
     /** Full state to start from, sent once in both modes. */
     initial: snapshot,
 
-    /** Advances the simulation and returns what should be sent for this tick. */
-    tick(ms = TICK_MS): FeedMessage[] {
+    /** Advances the simulation and returns what should be sent for this tick, if anything. */
+    tick(ms = TICK_MS): FeedMessage | undefined {
       stepFleet(fleet, (ms / 1000) * TIME_SCALE)
       const from = elapsed
       elapsed += ms
 
-      if (options.mode === 'snapshot') {
-        sinceSnapshot += ms
-        if (sinceSnapshot < options.snapshotIntervalMs) return []
-        sinceSnapshot = 0
-        return [snapshot()]
-      }
+      if (options.mode === 'stream') return delta(from, elapsed)
 
-      const message = delta(from, elapsed)
-      return message ? [message] : []
+      sinceSnapshot += ms
+      if (sinceSnapshot < options.snapshotIntervalMs) return undefined
+      sinceSnapshot = 0
+      return snapshot()
     },
   }
 }

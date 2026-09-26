@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { MOSCOW } from '../src/simulation/city'
-import { createFleet, stepFleet } from '../src/simulation/fleet'
+import { MOSCOW_CENTER } from '../src/simulation/city'
+import { createFleet, MAX_SPEED, METERS_PER_DEGREE, stepFleet } from '../src/simulation/fleet'
 
 describe('fleet', () => {
   test('the same seed gives the same fleet', () => {
@@ -36,11 +37,11 @@ describe('fleet', () => {
     stepFleet(fleet, 1)
 
     for (let i = 0; i < fleet.count; i++) {
-      const dLat = (fleet.positions[i * 2 + 1]! - before[i * 2 + 1]!) * 111_320
-      const dLng =
-        (fleet.positions[i * 2]! - before[i * 2]!) * 111_320 * Math.cos((55.75 * Math.PI) / 180)
-      // Speeds are 6–16 m/s; allow for float32 rounding.
-      expect(Math.hypot(dLat, dLng)).toBeLessThan(17)
+      const metersPerLng = METERS_PER_DEGREE * Math.cos((MOSCOW_CENTER[1] * Math.PI) / 180)
+      const dLat = (fleet.positions[i * 2 + 1]! - before[i * 2 + 1]!) * METERS_PER_DEGREE
+      const dLng = (fleet.positions[i * 2]! - before[i * 2]!) * metersPerLng
+      // Allow a metre for float32 rounding and latitude spread.
+      expect(Math.hypot(dLat, dLng)).toBeLessThan(MAX_SPEED + 1)
     }
   })
 })

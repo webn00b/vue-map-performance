@@ -15,13 +15,13 @@ const STATUS_NAMES: Record<Status, string> = {
 }
 
 const scroller = ref<HTMLElement>()
+// A computed only notifies when the value changes, so the virtualizer options
+// are rebuilt on a new fleet size, not on every position update.
+const count = computed(() => props.view.count())
+const getScrollElement = () => scroller.value ?? null
+const estimateSize = () => 28
 const virtualizer = useVirtualizer(
-  computed(() => ({
-    count: props.view.count(),
-    getScrollElement: () => scroller.value ?? null,
-    estimateSize: () => 28,
-    overscan: 8,
-  })),
+  computed(() => ({ count: count.value, getScrollElement, estimateSize, overscan: 8 })),
 )
 </script>
 
