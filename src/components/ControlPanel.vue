@@ -1,92 +1,80 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import {
   DOM_MARKER_LIMIT,
   DOM_MARKER_WARNING,
+  FEED_MODES,
+  formatCount,
   INTERVAL_RANGE,
+  normalizeSettings,
+  RENDER_MODES,
+  STATE_MODES,
+  type FeedMode,
   type RenderMode,
   type Settings,
   type StateMode,
 } from '../settings'
-import type { FeedMode } from '../simulation/feed'
+import SegmentedControl from './SegmentedControl.vue'
 
 const props = defineProps<{ settings: Settings }>()
 const emit = defineEmits<{ change: [patch: Partial<Settings>] }>()
 
 const COUNTS = [100, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000]
 
-const renderOptions: { value: RenderMode; label: string; hint: string }[] = [
-  {
-    value: 'dom',
-    label: 'DOM markers',
-    hint: 'One HTML element per courier. Flexible, but the browser repositions every marker on each map move.',
+const render = {
+  labels: { dom: 'DOM markers', webgl: 'WebGL', cluster: 'Clusters' },
+  hints: {
+    dom: 'One HTML element per courier. Flexible, but the browser repositions every marker on each map move.',
+    webgl: 'All couriers in one GeoJSON source drawn on the GPU. Small updates are sent as diffs.',
+    cluster:
+      'Nearby couriers merge into clusters. Clustering re-runs over the whole fleet on every update.',
   },
-  {
-    value: 'webgl',
-    label: 'WebGL',
-    hint: 'All couriers in one GeoJSON source drawn on the GPU. Small updates are sent as diffs.',
-  },
-  {
-    value: 'cluster',
-    label: 'Clusters',
-    hint: 'Nearby couriers merge into clusters. Clustering re-runs over the whole fleet on every update.',
-  },
-]
+} satisfies { labels: Record<RenderMode, string>; hints: Record<RenderMode, string> }
 
-const feedOptions: { value: FeedMode; label: string; hint: string }[] = [
-  {
-    value: 'stream',
-    label: 'Stream',
-    hint: 'Each courier reports once a second, like a WebSocket feed. Changes are applied once per frame.',
+const feed = {
+  labels: { stream: 'Stream', snapshot: 'Snapshot' },
+  hints: {
+    stream:
+      'Each courier reports once a second, like a WebSocket feed. Changes are applied once per frame.',
+    snapshot: 'The whole fleet arrives at once, like polling an endpoint.',
   },
-  {
-    value: 'snapshot',
-    label: 'Snapshot',
-    hint: 'The whole fleet arrives at once, like polling an endpoint.',
-  },
-]
+} satisfies { labels: Record<FeedMode, string>; hints: Record<FeedMode, string> }
 
-const stateOptions: { value: StateMode; label: string; hint: string }[] = [
-  {
-    value: 'shallow',
-    label: 'shallowRef',
-    hint: 'Typed arrays in shallowRef, updated in place and announced with triggerRef().',
+const state = {
+  labels: { shallow: 'shallowRef', deep: 'ref' },
+  hints: {
+    shallow: 'Typed arrays in shallowRef, updated in place and announced with triggerRef().',
+    deep: 'An array of objects in ref() and a deep watcher, the way it is usually written.',
   },
-  {
-    value: 'deep',
-    label: 'ref',
-    hint: 'An array of objects in ref() and a deep watcher, the way it is usually written.',
-  },
-]
-
-const hint = (options: { value: string; hint: string }[], value: string) =>
-  options.find((option) => option.value === value)?.hint
+} satisfies { labels: Record<StateMode, string>; hints: Record<StateMode, string> }
 
 // The slider moves through fixed steps and applies after a short pause, so
 // dragging it doesn't rebuild the fleet at every step.
-const countIndex = ref(nearestCountIndex(props.settings.count))
+const draftCount = ref<number>()
 let countTimer: ReturnType<typeof setTimeout> | undefined
-watch(countIndex, (index) => {
+const sliderIndex = computed(() => nearestCountIndex(draftCount.value ?? props.settings.count))
+const shownCount = computed(() => formatCount(draftCount.value ?? props.settings.count))
+
+function onSlide(index: number) {
+  draftCount.value = COUNTS[index]!
   clearTimeout(countTimer)
-  countTimer = setTimeout(() => update({ count: COUNTS[index]! }), 300)
-})
-watch(
-  () => props.settings.count,
-  (count) => (countIndex.value = nearestCountIndex(count)),
-)
-const shownCount = computed(() => COUNTS[countIndex.value]!.toLocaleString('en-US'))
+  countTimer = setTimeout(() => {
+    update({ count: draftCount.value })
+    draftCount.value = undefined
+  }, 300)
+}
 
 function update(patch: Partial<Settings>) {
-  const next = { ...props.settings, ...patch }
-  const tooManyMarkers = (s: Settings) => s.render === 'dom' && s.count > DOM_MARKER_WARNING
-  if (tooManyMarkers(next) && !tooManyMarkers(props.settings)) {
+  const current = props.settings
+  // Ask only when DOM markers would really be drawn; above the cap the app
+  // switches to WebGL anyway.
+  const next = normalizeSettings({ ...current, ...patch }).settings
+  const heavy = (s: Settings) => s.render === 'dom' && s.count > DOM_MARKER_WARNING
+  if (heavy(next) && !heavy(current)) {
     const confirmed = window.confirm(
-      `${next.count.toLocaleString('en-US')} DOM markers can freeze the tab for a few seconds. Continue?`,
+      `${formatCount(next.count)} DOM markers can freeze the tab for a few seconds. Continue?`,
     )
-    if (!confirmed) {
-      countIndex.value = nearestCountIndex(props.settings.count)
-      return
-    }
+    if (!confirmed) return
   }
   emit('change', patch)
 }
@@ -107,49 +95,37 @@ function nearestCountIndex(count: number) {
         Couriers <strong data-testid="count">{{ shownCount }}</strong>
       </span>
       <input
-        v-model.number="countIndex"
+        :value="sliderIndex"
         type="range"
         min="0"
         :max="COUNTS.length - 1"
         step="1"
         data-testid="count-slider"
+        @input="onSlide(Number(($event.target as HTMLInputElement).value))"
       />
     </label>
 
-    <fieldset class="field">
-      <legend class="label">Rendering</legend>
-      <div class="segmented">
-        <button
-          v-for="option in renderOptions"
-          :key="option.value"
-          type="button"
-          :class="{ active: settings.render === option.value }"
-          :data-testid="`render-${option.value}`"
-          @click="update({ render: option.value })"
-        >
-          {{ option.label }}
-        </button>
-      </div>
-      <p class="hint">{{ hint(renderOptions, settings.render) }}</p>
+    <SegmentedControl
+      legend="Rendering"
+      :options="RENDER_MODES"
+      v-bind="render"
+      testid="render"
+      :model-value="settings.render"
+      @update:model-value="update({ render: $event })"
+    >
       <p v-if="settings.render === 'dom'" class="hint">
-        Capped at {{ DOM_MARKER_LIMIT.toLocaleString('en-US') }} markers.
+        Capped at {{ formatCount(DOM_MARKER_LIMIT) }} markers.
       </p>
-    </fieldset>
+    </SegmentedControl>
 
-    <fieldset class="field">
-      <legend class="label">Updates</legend>
-      <div class="segmented">
-        <button
-          v-for="option in feedOptions"
-          :key="option.value"
-          type="button"
-          :class="{ active: settings.feed === option.value }"
-          :data-testid="`feed-${option.value}`"
-          @click="update({ feed: option.value })"
-        >
-          {{ option.label }}
-        </button>
-      </div>
+    <SegmentedControl
+      legend="Updates"
+      :options="FEED_MODES"
+      v-bind="feed"
+      testid="feed"
+      :model-value="settings.feed"
+      @update:model-value="update({ feed: $event })"
+    >
       <label v-if="settings.feed === 'snapshot'" class="inline">
         every
         <input
@@ -157,39 +133,20 @@ function nearestCountIndex(count: number) {
           :min="INTERVAL_RANGE.min"
           :max="INTERVAL_RANGE.max"
           :value="settings.interval"
-          @change="
-            update({
-              interval: Math.min(
-                INTERVAL_RANGE.max,
-                Math.max(
-                  INTERVAL_RANGE.min,
-                  Number(($event.target as HTMLInputElement).value) || 1,
-                ),
-              ),
-            })
-          "
+          @change="update({ interval: Number(($event.target as HTMLInputElement).value) })"
         />
         s
       </label>
-      <p class="hint">{{ hint(feedOptions, settings.feed) }}</p>
-    </fieldset>
+    </SegmentedControl>
 
-    <fieldset class="field">
-      <legend class="label">Vue state</legend>
-      <div class="segmented">
-        <button
-          v-for="option in stateOptions"
-          :key="option.value"
-          type="button"
-          :class="{ active: settings.state === option.value }"
-          :data-testid="`state-${option.value}`"
-          @click="update({ state: option.value })"
-        >
-          {{ option.label }}
-        </button>
-      </div>
-      <p class="hint">{{ hint(stateOptions, settings.state) }}</p>
-    </fieldset>
+    <SegmentedControl
+      legend="Vue state"
+      :options="STATE_MODES"
+      v-bind="state"
+      testid="state"
+      :model-value="settings.state"
+      @update:model-value="update({ state: $event })"
+    />
   </section>
 </template>
 
@@ -200,48 +157,17 @@ function nearestCountIndex(count: number) {
 }
 
 .field {
-  margin: 0;
-  padding: 0;
-  border: 0;
   display: grid;
   gap: 6px;
 }
 
 .label {
-  padding: 0;
   font-weight: 600;
 }
 
 .label strong {
   float: right;
   font-variant-numeric: tabular-nums;
-}
-
-.segmented {
-  display: flex;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.segmented button {
-  flex: 1;
-  padding: 5px 6px;
-  border: 0;
-  border-left: 1px solid var(--border);
-  background: #fff;
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
-}
-
-.segmented button:first-child {
-  border-left: 0;
-}
-
-.segmented button.active {
-  background: var(--accent);
-  color: #fff;
 }
 
 .hint {

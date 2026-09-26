@@ -1,7 +1,10 @@
-import type { FeedMode } from './simulation/feed'
+export const RENDER_MODES = ['dom', 'webgl', 'cluster'] as const
+export const STATE_MODES = ['shallow', 'deep'] as const
+export const FEED_MODES = ['stream', 'snapshot'] as const
 
-export type RenderMode = 'dom' | 'webgl' | 'cluster'
-export type StateMode = 'deep' | 'shallow'
+export type RenderMode = (typeof RENDER_MODES)[number]
+export type StateMode = (typeof STATE_MODES)[number]
+export type FeedMode = (typeof FEED_MODES)[number]
 
 export interface Settings {
   count: number
@@ -24,61 +27,77 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export const COUNT_RANGE = { min: 100, max: 50_000 }
 export const INTERVAL_RANGE = { min: 1, max: 30 }
+const SEED_RANGE = { min: 0, max: 2 ** 31 - 1 }
 /** Above this many DOM markers the tab stops responding for seconds at a time. */
 export const DOM_MARKER_LIMIT = 10_000
 export const DOM_MARKER_WARNING = 5_000
 
-const RENDER_MODES: readonly RenderMode[] = ['dom', 'webgl', 'cluster']
-const STATE_MODES: readonly StateMode[] = ['deep', 'shallow']
-const FEED_MODES: readonly FeedMode[] = ['snapshot', 'stream']
+const formatter = new Intl.NumberFormat('en-US')
+export const formatCount = (value: number) => formatter.format(value)
+
+/** URL parameter for each setting and how to read it back. */
+const PARAMS: {
+  [K in keyof Settings]: { name: string; parse: (value: string) => Settings[K] | undefined }
+} = {
+  count: { name: 'n', parse: parseInteger },
+  render: { name: 'render', parse: (value) => oneOf(value, RENDER_MODES) },
+  state: { name: 'state', parse: (value) => oneOf(value, STATE_MODES) },
+  feed: { name: 'feed', parse: (value) => oneOf(value, FEED_MODES) },
+  interval: { name: 'interval', parse: parseInteger },
+  seed: { name: 'seed', parse: parseInteger },
+}
 
 /** Reads settings from a query string. Anything missing or invalid falls back to the default. */
-export function parseSettings(search: string): Settings {
+export function parseSettings(search: string): { settings: Settings; notice?: string } {
   const params = new URLSearchParams(search)
-  return {
-    count: intParam(params.get('n'), COUNT_RANGE, DEFAULT_SETTINGS.count),
-    render: oneOf(params.get('render'), RENDER_MODES, DEFAULT_SETTINGS.render),
-    state: oneOf(params.get('state'), STATE_MODES, DEFAULT_SETTINGS.state),
-    feed: oneOf(params.get('feed'), FEED_MODES, DEFAULT_SETTINGS.feed),
-    interval: intParam(params.get('interval'), INTERVAL_RANGE, DEFAULT_SETTINGS.interval),
-    seed: intParam(params.get('seed'), { min: 0, max: 2 ** 31 - 1 }, DEFAULT_SETTINGS.seed),
+  const settings = { ...DEFAULT_SETTINGS }
+  for (const key of Object.keys(PARAMS) as (keyof Settings)[]) {
+    const raw = params.get(PARAMS[key].name)
+    const value = raw === null ? undefined : PARAMS[key].parse(raw)
+    if (value !== undefined) Object.assign(settings, { [key]: value })
   }
+  return normalizeSettings(settings)
 }
 
 /** Query string with only the values that differ from the defaults. */
 export function serializeSettings(settings: Settings): string {
   const params = new URLSearchParams()
-  const entries: [string, keyof Settings][] = [
-    ['n', 'count'],
-    ['render', 'render'],
-    ['state', 'state'],
-    ['feed', 'feed'],
-    ['interval', 'interval'],
-    ['seed', 'seed'],
-  ]
-  for (const [param, key] of entries) {
-    if (settings[key] !== DEFAULT_SETTINGS[key]) params.set(param, String(settings[key]))
+  for (const key of Object.keys(PARAMS) as (keyof Settings)[]) {
+    if (settings[key] !== DEFAULT_SETTINGS[key]) params.set(PARAMS[key].name, String(settings[key]))
   }
   const query = params.toString()
   return query ? `?${query}` : ''
 }
 
-/** Falls back to WebGL when there would be too many DOM markers. */
-export function enforceLimits(settings: Settings): { settings: Settings; notice?: string } {
+/**
+ * Brings settings into the supported ranges. Every change goes through here,
+ * whether it comes from the URL or from the controls.
+ */
+export function normalizeSettings(input: Settings): { settings: Settings; notice?: string } {
+  const settings: Settings = {
+    ...input,
+    count: clamp(input.count, COUNT_RANGE),
+    interval: clamp(input.interval, INTERVAL_RANGE),
+    seed: clamp(input.seed, SEED_RANGE),
+  }
   if (settings.render === 'dom' && settings.count > DOM_MARKER_LIMIT) {
     return {
       settings: { ...settings, render: 'webgl' },
-      notice: `DOM markers are capped at ${DOM_MARKER_LIMIT.toLocaleString('en-US')}, switched to WebGL.`,
+      notice: `DOM markers are capped at ${formatCount(DOM_MARKER_LIMIT)}, switched to WebGL.`,
     }
   }
   return { settings }
 }
 
-function intParam(value: string | null, range: { min: number; max: number }, fallback: number) {
-  if (value === null || !/^\d+$/.test(value)) return fallback
-  return Math.min(range.max, Math.max(range.min, Number(value)))
+function clamp(value: number, range: { min: number; max: number }) {
+  if (!Number.isFinite(value)) return range.min
+  return Math.min(range.max, Math.max(range.min, Math.round(value)))
 }
 
-function oneOf<T extends string>(value: string | null, options: readonly T[], fallback: T): T {
-  return options.includes(value as T) ? (value as T) : fallback
+function parseInteger(value: string) {
+  return /^\d+$/.test(value) ? Number(value) : undefined
+}
+
+function oneOf<T extends string>(value: string, options: readonly T[]): T | undefined {
+  return options.includes(value as T) ? (value as T) : undefined
 }
