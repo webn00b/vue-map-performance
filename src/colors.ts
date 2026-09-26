@@ -1,3 +1,5 @@
+import { Status } from './simulation/fleet'
+
 /**
  * The one place colors are defined. CSS reads them as custom properties
  * (`accent` → `--accent`), while canvas and MapLibre, which can't read CSS
@@ -19,6 +21,12 @@ export const COLORS = {
   bad: '#cf222e',
   idle: '#8c959f',
 } as const
+
+export const STATUS_COLORS: Record<Status, string> = {
+  [Status.Idle]: COLORS.idle,
+  [Status.Delivering]: COLORS.accent,
+  [Status.Returning]: COLORS.good,
+}
 
 export function applyColorVariables(root: HTMLElement): void {
   for (const [name, value] of Object.entries(COLORS)) {

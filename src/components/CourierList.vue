@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { Status } from '../simulation/fleet'
 import type { FleetView } from '../state/useCouriers'
-import { STATUS_COLORS } from '../map/renderers'
+import { STATUS_COLORS } from '../colors'
 
 const props = defineProps<{ view: FleetView }>()
 const emit = defineEmits<{ select: [index: number] }>()

@@ -19,15 +19,17 @@ import SegmentedControl from './SegmentedControl.vue'
 const props = defineProps<{ settings: Settings }>()
 const emit = defineEmits<{ change: [patch: Partial<Settings>] }>()
 
-const COUNTS = [100, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000]
+const COUNTS = [100, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000, 100_000, 200_000]
 
 const render = {
-  labels: { dom: 'DOM markers', webgl: 'WebGL', cluster: 'Clusters' },
+  labels: { dom: 'DOM', webgl: 'GeoJSON', cluster: 'Clusters', gpu: 'GPU' },
   hints: {
     dom: 'One HTML element per courier. Flexible, but the browser repositions every marker on each map move.',
-    webgl: 'All couriers in one GeoJSON source drawn on the GPU. Small updates are sent as diffs.',
+    webgl:
+      'All couriers in one GeoJSON source. MapLibre re-tiles it in a worker after each update, which falls behind on large fleets.',
     cluster:
       'Nearby couriers merge into clusters. Clustering re-runs over the whole fleet on every update.',
+    gpu: 'A custom WebGL layer: positions go straight into a GPU buffer, with no GeoJSON and no worker round trip.',
   },
 } satisfies { labels: Record<RenderMode, string>; hints: Record<RenderMode, string> }
 

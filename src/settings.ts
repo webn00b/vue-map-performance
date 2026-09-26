@@ -1,4 +1,4 @@
-export const RENDER_MODES = ['dom', 'webgl', 'cluster'] as const
+export const RENDER_MODES = ['dom', 'webgl', 'cluster', 'gpu'] as const
 export const STATE_MODES = ['shallow', 'deep'] as const
 export const FEED_MODES = ['stream', 'snapshot'] as const
 
@@ -18,19 +18,21 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   count: 2000,
-  render: 'webgl',
+  render: 'gpu',
   state: 'shallow',
   feed: 'stream',
   interval: 3,
   seed: 42,
 }
 
-export const COUNT_RANGE = { min: 100, max: 50_000 }
+export const COUNT_RANGE = { min: 100, max: 200_000 }
 export const INTERVAL_RANGE = { min: 1, max: 30 }
 const SEED_RANGE = { min: 0, max: 2 ** 31 - 1 }
 /** Above this many DOM markers the tab stops responding for seconds at a time. */
 export const DOM_MARKER_LIMIT = 10_000
 export const DOM_MARKER_WARNING = 5_000
+/** GeoJSON layers and the deep store fall far behind beyond this. */
+export const HEAVY_MODE_LIMIT = 50_000
 
 const formatter = new Intl.NumberFormat('en-US')
 export const formatCount = (value: number) => formatter.format(value)
@@ -80,13 +82,29 @@ export function normalizeSettings(input: Settings): { settings: Settings; notice
     interval: clamp(input.interval, INTERVAL_RANGE),
     seed: clamp(input.seed, SEED_RANGE),
   }
+  const notices: string[] = []
   if (settings.render === 'dom' && settings.count > DOM_MARKER_LIMIT) {
-    return {
-      settings: { ...settings, render: 'webgl' },
-      notice: `DOM markers are capped at ${formatCount(DOM_MARKER_LIMIT)}, switched to WebGL.`,
-    }
+    settings.render = 'gpu'
+    notices.push(
+      `DOM markers are capped at ${formatCount(DOM_MARKER_LIMIT)}, switched to the GPU layer.`,
+    )
   }
-  return { settings }
+  if (
+    (settings.render === 'webgl' || settings.render === 'cluster') &&
+    settings.count > HEAVY_MODE_LIMIT
+  ) {
+    settings.render = 'gpu'
+    notices.push(
+      `GeoJSON layers are capped at ${formatCount(HEAVY_MODE_LIMIT)}, switched to the GPU layer.`,
+    )
+  }
+  if (settings.state === 'deep' && settings.count > HEAVY_MODE_LIMIT) {
+    settings.state = 'shallow'
+    notices.push(
+      `A deep ref is capped at ${formatCount(HEAVY_MODE_LIMIT)}, switched to shallowRef.`,
+    )
+  }
+  return notices.length ? { settings, notice: notices.join(' ') } : { settings }
 }
 
 function clamp(value: number, range: { min: number; max: number }) {

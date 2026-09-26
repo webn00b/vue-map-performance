@@ -29,7 +29,7 @@ describe('parseSettings', () => {
 
   test('clamps numbers into range', () => {
     const { settings } = parseSettings('?n=999999&interval=0')
-    expect(settings.count).toBe(50_000)
+    expect(settings.count).toBe(200_000)
     expect(settings.interval).toBe(1)
   })
 
@@ -41,7 +41,7 @@ describe('parseSettings', () => {
 
   test('applies the DOM marker cap to links too', () => {
     const { settings, notice } = parseSettings('?render=dom&n=20000')
-    expect(settings.render).toBe('webgl')
+    expect(settings.render).toBe('gpu')
     expect(notice).toMatch(/capped at 10,000/)
   })
 })
@@ -76,14 +76,31 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings(settings)).toEqual({ settings })
   })
 
-  test('switches to WebGL above the limit and explains why', () => {
+  test('switches DOM markers to the GPU layer above the limit and explains why', () => {
     const result = normalizeSettings({
       ...DEFAULT_SETTINGS,
       render: 'dom',
       count: DOM_MARKER_LIMIT + 1,
     })
-    expect(result.settings.render).toBe('webgl')
+    expect(result.settings.render).toBe('gpu')
     expect(result.notice).toMatch(/capped at 10,000/)
+  })
+
+  test.each(['webgl', 'cluster'] as const)('moves %s to the GPU layer above 50k', (render) => {
+    const result = normalizeSettings({ ...DEFAULT_SETTINGS, render, count: 100_000 })
+    expect(result.settings.render).toBe('gpu')
+    expect(result.notice).toMatch(/GeoJSON layers are capped at 50,000/)
+  })
+
+  test('moves a deep ref to shallowRef above 50k', () => {
+    const result = normalizeSettings({ ...DEFAULT_SETTINGS, state: 'deep', count: 200_000 })
+    expect(result.settings.state).toBe('shallow')
+    expect(result.notice).toMatch(/deep ref is capped at 50,000/)
+  })
+
+  test('leaves the GPU layer alone at 200k', () => {
+    const settings = { ...DEFAULT_SETTINGS, render: 'gpu' as const, count: 200_000 }
+    expect(normalizeSettings(settings)).toEqual({ settings })
   })
 
   test('clamps values coming from the controls', () => {

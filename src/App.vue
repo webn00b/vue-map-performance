@@ -31,7 +31,13 @@ const syncUrl = (value: Settings) =>
 syncUrl(settings.value)
 watch(settings, syncUrl)
 
-const { metrics, recordFlush, reset: resetMetrics } = useMetrics()
+const {
+  metrics,
+  recordFlush,
+  recordMapUpdate,
+  recordFeedMessage,
+  reset: resetMetrics,
+} = useMetrics()
 
 const store = shallowRef(useCouriers(settings.value.state, recordFlush))
 
@@ -41,7 +47,9 @@ const worker = new Worker(new URL('./simulation/worker.ts', import.meta.url), { 
 let run = 0
 
 worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
-  if (event.data.run === run) store.value.receive(event.data.message)
+  if (event.data.run !== run) return
+  recordFeedMessage()
+  store.value.receive(event.data.message)
 }
 worker.onerror = () => {
   error.value = 'The simulation worker failed to start. Try reloading the page.'
@@ -107,7 +115,7 @@ watch([mapReady, store, () => settings.value.render], ([ready, current, mode]) =
   renderer?.destroy()
   if (!ready || !map) return
 
-  renderer = createRenderer(mode, map, current.view)
+  renderer = createRenderer(mode, map, current.view, recordMapUpdate)
   stopListening = current.onChange((changed) => renderer!.update(changed))
   resetMetrics()
 })

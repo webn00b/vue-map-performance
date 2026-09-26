@@ -1,13 +1,15 @@
 import type { FeatureCollection, Point } from 'geojson'
-import { COLORS } from '../colors'
+import { COLORS, STATUS_COLORS } from '../colors'
 import type { RenderMode } from '../settings'
 import { Status } from '../simulation/fleet'
 import type { FleetView } from '../state/useCouriers'
+import { createGpuRenderer } from './gpuRenderer'
 import {
   Marker,
   type GeoJSONFeatureDiff,
   type GeoJSONSource,
   type Map as MapLibreMap,
+  type MapSourceDataEvent,
 } from './maplibre'
 
 /** Draws the current state when created, then follows updates. */
@@ -17,15 +19,16 @@ export interface Renderer {
   destroy(): void
 }
 
-export const STATUS_COLORS: Record<Status, string> = {
-  [Status.Idle]: COLORS.idle,
-  [Status.Delivering]: COLORS.accent,
-  [Status.Returning]: COLORS.good,
-}
-
-export function createRenderer(mode: RenderMode, map: MapLibreMap, view: FleetView): Renderer {
-  if (mode === 'dom') return createDomRenderer(map, view)
-  return createWebglRenderer(map, view, { cluster: mode === 'cluster' })
+/** `onApplied` is called whenever new courier data actually reaches the screen. */
+export function createRenderer(
+  mode: RenderMode,
+  map: MapLibreMap,
+  view: FleetView,
+  onApplied: () => void,
+): Renderer {
+  if (mode === 'dom') return createDomRenderer(map, view, onApplied)
+  if (mode === 'gpu') return createGpuRenderer(map, view, onApplied)
+  return createWebglRenderer(map, view, { cluster: mode === 'cluster', onApplied })
 }
 
 /**
@@ -33,7 +36,7 @@ export function createRenderer(mode: RenderMode, map: MapLibreMap, view: FleetVi
  * repositioned by the browser on each map move, which is what falls apart
  * with thousands of them.
  */
-function createDomRenderer(map: MapLibreMap, view: FleetView): Renderer {
+function createDomRenderer(map: MapLibreMap, view: FleetView, onApplied: () => void): Renderer {
   const markers: Marker[] = []
   const statuses: number[] = []
 
@@ -64,6 +67,7 @@ function createDomRenderer(map: MapLibreMap, view: FleetView): Renderer {
     resize()
     if (changed) changed.forEach(place)
     else for (let i = 0; i < markers.length; i++) place(i)
+    onApplied()
   }
   update(null)
 
@@ -86,7 +90,7 @@ const LAYERS = ['couriers', 'clusters', 'cluster-count'] as const
 function createWebglRenderer(
   map: MapLibreMap,
   view: FleetView,
-  { cluster }: { cluster: boolean },
+  { cluster, onApplied }: { cluster: boolean; onApplied: () => void },
 ): Renderer {
   map.addSource(SOURCE, {
     type: 'geojson',
@@ -149,6 +153,11 @@ function createWebglRenderer(
   })
 
   const source = map.getSource<GeoJSONSource>(SOURCE)!
+  // MapLibre fires this once its worker has taken in a data update.
+  const onSourceData = (event: MapSourceDataEvent) => {
+    if (event.sourceId === SOURCE && event.sourceDataType === 'content') onApplied()
+  }
+  map.on('sourcedata', onSourceData)
   // Last status sent per courier, so diffs only carry the property when it
   // changed. Clusters never use diffs, so they skip it.
   let sentStatuses = cluster ? new Uint8Array() : statusesOf(view)
@@ -197,6 +206,7 @@ function createWebglRenderer(
       })
     },
     destroy() {
+      map.off('sourcedata', onSourceData)
       for (const id of LAYERS) if (map.getLayer(id)) map.removeLayer(id)
       if (map.getSource(SOURCE)) map.removeSource(SOURCE)
     },

@@ -11,6 +11,12 @@ const format = (value: number, digits = 0) => value.toFixed(digits)
 const fpsLevel = computed(() => level(props.metrics.fpsLow, 50, 30, true))
 const longTaskLevel = computed(() => level(props.metrics.longTaskMs, 50, 300))
 const flushLevel = computed(() => level(props.metrics.flushMaxMs, 8, 16))
+// Share of feed messages that made it to the screen; batching several into
+// one frame is fine, falling far behind is not.
+const mapLevel = computed(() => {
+  const { mapUpdates, feedMessages } = props.metrics
+  return feedMessages === 0 ? 'good' : level(mapUpdates / feedMessages, 0.8, 0.3, true)
+})
 
 /** good / warn / bad against two thresholds; `higherIsBetter` flips the comparison. */
 function level(value: number, good: number, bad: number, higherIsBetter = false) {
@@ -28,6 +34,8 @@ function level(value: number, good: number, bad: number, higherIsBetter = false)
     :data-long-task-ms="metrics.longTaskMs"
     :data-flush-ms="metrics.flushMs"
     :data-flush-max-ms="metrics.flushMaxMs"
+    :data-map-updates="metrics.mapUpdates"
+    :data-feed-messages="metrics.feedMessages"
   >
     <div class="metric">
       <div class="name">FPS <span class="muted">now / lowest</span></div>
@@ -52,6 +60,14 @@ function level(value: number, good: number, bad: number, higherIsBetter = false)
         <span class="muted">/ {{ format(metrics.flushMaxMs, 1) }} ms</span>
       </div>
       <Sparkline :values="metrics.history.flushMs" :color="COLORS.warn" />
+    </div>
+
+    <div class="metric">
+      <div class="name">Map updates <span class="muted">per second / feed messages</span></div>
+      <div class="value" :class="mapLevel">
+        {{ metrics.mapUpdates }} <span class="muted">/ {{ metrics.feedMessages }}</span>
+      </div>
+      <Sparkline :values="metrics.history.mapUpdates" :color="COLORS.good" />
     </div>
 
     <div class="metric">

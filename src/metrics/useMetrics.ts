@@ -15,7 +15,11 @@ export interface Metrics {
   heapMb: number | null
   flushMs: number
   flushMaxMs: number
-  history: { fps: number[]; longTaskMs: number[]; flushMs: number[] }
+  /** Times per second new courier data reached the screen. */
+  mapUpdates: number
+  /** Feed messages received per second, for comparison. */
+  feedMessages: number
+  history: { fps: number[]; longTaskMs: number[]; flushMs: number[]; mapUpdates: number[] }
 }
 
 interface ChromePerformance extends Performance {
@@ -25,8 +29,10 @@ interface ChromePerformance extends Performance {
 /** Samples page performance once a second. Keep one instance per page. */
 export function useMetrics() {
   const metrics = reactive<Metrics>(emptyMetrics())
-  // The one-second interval below defines the FPS window.
+  // The one-second interval below defines the window for these counters.
   let frames = 0
+  let mapUpdates = 0
+  let feedMessages = 0
   const secondsOfFps = createTimeWindow(WINDOW_MS)
   const longTasks = createTimeWindow(WINDOW_MS)
   const flushes = createTimeWindow(WINDOW_MS)
@@ -65,10 +71,15 @@ export function useMetrics() {
     metrics.heapMb = memory ? memory.usedJSHeapSize / 1024 / 1024 : null
     metrics.flushMs = flush.average
     metrics.flushMaxMs = flush.max
+    metrics.mapUpdates = mapUpdates
+    metrics.feedMessages = feedMessages
+    mapUpdates = 0
+    feedMessages = 0
 
     push(metrics.history.fps, fps)
     push(metrics.history.longTaskMs, tasks.sum)
     push(metrics.history.flushMs, flush.average)
+    push(metrics.history.mapUpdates, metrics.mapUpdates)
   }, 1000)
 
   onScopeDispose(() => {
@@ -81,6 +92,12 @@ export function useMetrics() {
     metrics,
     recordFlush(ms: number) {
       flushes.add(performance.now(), ms)
+    },
+    recordMapUpdate() {
+      mapUpdates++
+    },
+    recordFeedMessage() {
+      feedMessages++
     },
     /** Starts over, e.g. after switching modes, so old numbers don't blur the comparison. */
     reset() {
@@ -99,7 +116,9 @@ function emptyMetrics(): Metrics {
     heapMb: null,
     flushMs: 0,
     flushMaxMs: 0,
-    history: { fps: [], longTaskMs: [], flushMs: [] },
+    mapUpdates: 0,
+    feedMessages: 0,
+    history: { fps: [], longTaskMs: [], flushMs: [], mapUpdates: [] },
   }
 }
 

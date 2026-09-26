@@ -32,6 +32,7 @@ test('switches through every mode without errors', async ({ page }) => {
     'state-shallow',
     'feed-stream',
     'render-webgl',
+    'render-gpu',
   ]) {
     await page.getByTestId(id).click()
     await expect(page.getByTestId(id)).toHaveClass(/active/)
@@ -54,10 +55,10 @@ test('settings survive a reload through the URL', async ({ page }) => {
   await expect(page.getByTestId('state-deep')).toHaveClass(/active/)
 })
 
-test('falls back to WebGL instead of rendering too many DOM markers', async ({ page }) => {
+test('falls back to the GPU layer instead of rendering too many DOM markers', async ({ page }) => {
   await page.goto('/?render=dom&n=20000')
   await expect(page.getByRole('status')).toContainText('capped at 10,000')
-  await expect(page.getByTestId('render-webgl')).toHaveClass(/active/)
+  await expect(page.getByTestId('render-gpu')).toHaveClass(/active/)
   await expect(page).not.toHaveURL(/render=dom/)
   await expect(page.locator('.courier-marker')).toHaveCount(0)
 })
