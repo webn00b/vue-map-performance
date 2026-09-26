@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Metrics } from '../metrics/useMetrics'
+import { COLORS } from '../colors'
 import Sparkline from './Sparkline.vue'
 
 const props = defineProps<{ metrics: Metrics }>()
@@ -33,7 +34,7 @@ function level(value: number, good: number, bad: number, higherIsBetter = false)
       <div class="value" :class="fpsLevel">
         {{ metrics.fps }} <span class="muted">/ {{ metrics.fpsLow }}</span>
       </div>
-      <Sparkline :values="metrics.history.fps" color="#0969da" :max="60" />
+      <Sparkline :values="metrics.history.fps" :color="COLORS.accent" :max="60" />
     </div>
 
     <div class="metric">
@@ -41,7 +42,7 @@ function level(value: number, good: number, bad: number, higherIsBetter = false)
       <div class="value" :class="longTaskLevel">
         {{ metrics.longTasks }} <span class="muted">· {{ format(metrics.longTaskMs) }} ms</span>
       </div>
-      <Sparkline :values="metrics.history.longTaskMs" color="#cf222e" />
+      <Sparkline :values="metrics.history.longTaskMs" :color="COLORS.bad" />
     </div>
 
     <div class="metric">
@@ -50,7 +51,7 @@ function level(value: number, good: number, bad: number, higherIsBetter = false)
         {{ format(metrics.flushMs, 1) }}
         <span class="muted">/ {{ format(metrics.flushMaxMs, 1) }} ms</span>
       </div>
-      <Sparkline :values="metrics.history.flushMs" color="#9a6700" />
+      <Sparkline :values="metrics.history.flushMs" :color="COLORS.warn" />
     </div>
 
     <div class="metric">

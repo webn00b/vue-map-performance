@@ -1,12 +1,5 @@
 :root {
-  --panel-bg: rgb(255 255 255 / 0.94);
-  --text: #1f2328;
-  --muted: #656d76;
-  --border: #d0d7de;
-  --accent: #0969da;
-  --warn: #9a6700;
-  --bad: #cf222e;
-  --good: #1a7f37;
+  /* Colors are set as custom properties from src/colors.ts. */
   font:
     13px/1.4 system-ui,
     -apple-system,
@@ -29,6 +22,6 @@ body,
 .courier-marker {
   width: 8px;
   height: 8px;
-  border: 1px solid #fff;
+  border: 1px solid var(--surface);
   border-radius: 50%;
 }

@@ -64,7 +64,7 @@ const virtualizer = useVirtualizer(
   gap: 8px;
   padding: 0 10px;
   border: 0;
-  border-bottom: 1px solid #eaeef2;
+  border-bottom: 1px solid var(--divider);
   background: none;
   font: inherit;
   text-align: left;
@@ -72,7 +72,7 @@ const virtualizer = useVirtualizer(
 }
 
 .row:hover {
-  background: #f6f8fa;
+  background: var(--hover);
 }
 
 .dot {

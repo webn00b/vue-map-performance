@@ -56,7 +56,7 @@ const model = defineModel<T>({ required: true })
   padding: 5px 6px;
   border: 0;
   border-left: 1px solid var(--border);
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
   cursor: pointer;
@@ -68,7 +68,7 @@ const model = defineModel<T>({ required: true })
 
 .segmented button.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--surface);
 }
 
 .hint {

@@ -166,7 +166,7 @@ onBeforeUnmount(() => {
   background: var(--panel-bg);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.08);
+  box-shadow: 0 4px 16px var(--shadow);
 }
 
 .settings {
@@ -195,7 +195,7 @@ p {
 .notice {
   padding: 8px 10px;
   border-radius: 6px;
-  background: #fff8c5;
+  background: var(--warn-bg);
   color: var(--warn);
 }
 
@@ -239,7 +239,7 @@ p {
   padding: 10px 14px;
   border-radius: 6px;
   background: var(--bad);
-  color: #fff;
+  color: var(--surface);
 }
 
 /* Keep in sync with NARROW_SCREEN. The map only covers the area above the

@@ -1,4 +1,5 @@
 import type { FeatureCollection, Point } from 'geojson'
+import { COLORS } from '../colors'
 import type { RenderMode } from '../settings'
 import { Status } from '../simulation/fleet'
 import type { FleetView } from '../state/useCouriers'
@@ -17,9 +18,9 @@ export interface Renderer {
 }
 
 export const STATUS_COLORS: Record<Status, string> = {
-  [Status.Idle]: '#8c959f',
-  [Status.Delivering]: '#0969da',
-  [Status.Returning]: '#1a7f37',
+  [Status.Idle]: COLORS.idle,
+  [Status.Delivering]: COLORS.accent,
+  [Status.Returning]: COLORS.good,
 }
 
 export function createRenderer(mode: RenderMode, map: MapLibreMap, view: FleetView): Renderer {
@@ -102,11 +103,11 @@ function createWebglRenderer(
       source: SOURCE,
       filter: ['has', 'point_count'],
       paint: {
-        'circle-color': '#0969da',
+        'circle-color': COLORS.accent,
         'circle-opacity': 0.85,
         'circle-radius': ['step', ['get', 'point_count'], 12, 50, 16, 200, 22, 1000, 30],
         'circle-stroke-width': 2,
-        'circle-stroke-color': '#fff',
+        'circle-stroke-color': COLORS.surface,
       },
     })
     map.addLayer({
@@ -122,7 +123,7 @@ function createWebglRenderer(
         'text-allow-overlap': true,
         'text-ignore-placement': true,
       },
-      paint: { 'text-color': '#fff' },
+      paint: { 'text-color': COLORS.surface },
     })
   }
 
@@ -143,7 +144,7 @@ function createWebglRenderer(
         STATUS_COLORS[Status.Idle],
       ],
       'circle-stroke-width': 1,
-      'circle-stroke-color': '#fff',
+      'circle-stroke-color': COLORS.surface,
     },
   })
 
