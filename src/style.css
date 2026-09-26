@@ -25,3 +25,10 @@ body,
   height: 100%;
   margin: 0;
 }
+
+.courier-marker {
+  width: 8px;
+  height: 8px;
+  border: 1px solid #fff;
+  border-radius: 50%;
+}
