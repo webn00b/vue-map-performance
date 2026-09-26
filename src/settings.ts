@@ -1,14 +1,17 @@
 export const RENDER_MODES = ['dom', 'webgl', 'cluster', 'gpu'] as const
+export const MARKER_STYLES = ['icons', 'dots'] as const
 export const STATE_MODES = ['shallow', 'deep'] as const
 export const FEED_MODES = ['stream', 'snapshot'] as const
 
 export type RenderMode = (typeof RENDER_MODES)[number]
+export type MarkerStyle = (typeof MARKER_STYLES)[number]
 export type StateMode = (typeof STATE_MODES)[number]
 export type FeedMode = (typeof FEED_MODES)[number]
 
 export interface Settings {
   count: number
   render: RenderMode
+  markers: MarkerStyle
   state: StateMode
   feed: FeedMode
   /** Snapshot interval in seconds, used in `snapshot` feed mode. */
@@ -19,6 +22,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   count: 2000,
   render: 'gpu',
+  markers: 'icons',
   state: 'shallow',
   feed: 'stream',
   interval: 3,
@@ -43,6 +47,7 @@ const PARAMS: {
 } = {
   count: { name: 'n', parse: parseInteger },
   render: { name: 'render', parse: (value) => oneOf(value, RENDER_MODES) },
+  markers: { name: 'markers', parse: (value) => oneOf(value, MARKER_STYLES) },
   state: { name: 'state', parse: (value) => oneOf(value, STATE_MODES) },
   feed: { name: 'feed', parse: (value) => oneOf(value, FEED_MODES) },
   interval: { name: 'interval', parse: parseInteger },

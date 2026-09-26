@@ -6,10 +6,12 @@ import {
   FEED_MODES,
   formatCount,
   INTERVAL_RANGE,
+  MARKER_STYLES,
   normalizeSettings,
   RENDER_MODES,
   STATE_MODES,
   type FeedMode,
+  type MarkerStyle,
   type RenderMode,
   type Settings,
   type StateMode,
@@ -32,6 +34,14 @@ const render = {
     gpu: 'A custom WebGL layer: positions go straight into a GPU buffer, with no GeoJSON and no worker round trip.',
   },
 } satisfies { labels: Record<RenderMode, string>; hints: Record<RenderMode, string> }
+
+const markers = {
+  labels: { icons: 'Icons', dots: 'Dots' },
+  hints: {
+    icons: 'Vehicle icons with an arrow for the direction of travel.',
+    dots: 'Plain circles in the status color, the cheapest thing to draw.',
+  },
+} satisfies { labels: Record<MarkerStyle, string>; hints: Record<MarkerStyle, string> }
 
 const feed = {
   labels: { stream: 'Stream', snapshot: 'Snapshot' },
@@ -119,6 +129,15 @@ function nearestCountIndex(count: number) {
         Capped at {{ formatCount(DOM_MARKER_LIMIT) }} markers.
       </p>
     </SegmentedControl>
+
+    <SegmentedControl
+      legend="Markers"
+      :options="MARKER_STYLES"
+      v-bind="markers"
+      testid="markers"
+      :model-value="settings.markers"
+      @update:model-value="update({ markers: $event })"
+    />
 
     <SegmentedControl
       legend="Updates"

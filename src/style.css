@@ -19,6 +19,14 @@ body,
   margin: 0;
 }
 
+.courier-dot {
+  /* 4 px radius plus the stroke, like the other modes */
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--surface);
+  border-radius: 50%;
+}
+
 .courier-marker img {
   position: absolute;
   inset: 0;

@@ -15,11 +15,12 @@ describe('parseSettings', () => {
 
   test('reads every parameter', () => {
     const { settings } = parseSettings(
-      '?n=10000&render=dom&state=deep&feed=snapshot&interval=30&seed=7',
+      '?n=10000&render=dom&markers=dots&state=deep&feed=snapshot&interval=30&seed=7',
     )
     expect(settings).toEqual({
       count: 10000,
       render: 'dom',
+      markers: 'dots',
       state: 'deep',
       feed: 'snapshot',
       interval: 30,
@@ -34,7 +35,7 @@ describe('parseSettings', () => {
   })
 
   test('ignores garbage instead of breaking the page', () => {
-    expect(parseSettings('?n=lots&render=canvas&state=&feed=ws&seed=-1')).toEqual({
+    expect(parseSettings('?n=lots&render=canvas&markers=svg&state=&feed=ws&seed=-1')).toEqual({
       settings: DEFAULT_SETTINGS,
     })
   })
@@ -55,6 +56,7 @@ describe('serializeSettings', () => {
     const settings: Settings = {
       count: 5000,
       render: 'cluster',
+      markers: 'dots',
       state: 'deep',
       feed: 'snapshot',
       interval: 7,

@@ -116,15 +116,18 @@ onMounted(() => {
   })
 })
 
-watch([mapReady, store, () => settings.value.render], ([ready, current, mode]) => {
-  stopListening?.()
-  renderer?.destroy()
-  if (!ready || !map) return
+watch(
+  [mapReady, store, () => settings.value.render, () => settings.value.markers],
+  ([ready, current, mode, markers]) => {
+    stopListening?.()
+    renderer?.destroy()
+    if (!ready || !map) return
 
-  renderer = createRenderer(mode, map, current.view, recordMapUpdate)
-  stopListening = current.onChange((changed) => renderer!.update(changed))
-  resetMetrics()
-})
+    renderer = createRenderer(mode, map, current.view, { markers, onApplied: recordMapUpdate })
+    stopListening = current.onChange((changed) => renderer!.update(changed))
+    resetMetrics()
+  },
+)
 
 function focusCourier(index: number) {
   const { view } = store.value

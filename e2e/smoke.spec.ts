@@ -27,12 +27,14 @@ test('switches through every mode without errors', async ({ page }) => {
   for (const id of [
     'state-deep',
     'render-cluster',
+    'markers-dots',
     'feed-snapshot',
     'render-dom',
     'state-shallow',
     'feed-stream',
     'render-webgl',
     'render-gpu',
+    'markers-icons',
   ]) {
     await page.getByTestId(id).click()
     await expect(page.getByTestId(id)).toHaveClass(/active/)

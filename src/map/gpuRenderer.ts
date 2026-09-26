@@ -1,21 +1,26 @@
+import { STATUS_COLORS } from '../colors'
 import { packHeading } from '../simulation/feed'
 import type { FleetView } from '../state/useCouriers'
 import { createSprite, drawBadge, drawPointer, SPRITE_SIZE, STATUSES, VEHICLES } from './icons'
 import type { CustomLayerInterface, Map as MapLibreMap } from './maplibre'
-import type { Renderer } from './renderers'
+import type { Renderer, RendererOptions } from './renderers'
 
 const LAYER_ID = 'couriers-gpu'
 /** Atlas layout: one pointer per status, then a badge per vehicle and status. */
 const POINTER_CELLS = STATUSES.length
 const CELLS = POINTER_CELLS + VEHICLES.length * STATUSES.length
+/** Same look as the GeoJSON circle layer: 4 px radius plus a 1 px white stroke. */
+const DOT_SIZE = 10
 
 const VERTEX_SHADER = `#version 300 es
 uniform mat4 u_matrix;
 uniform float u_size;
+uniform vec3 u_colors[${STATUSES.length}];
 in vec2 a_position;
 in float a_status;
 in float a_vehicle;
 in float a_heading;
+out vec3 v_color;
 out float v_pointer;
 out float v_badge;
 out float v_heading;
@@ -23,6 +28,7 @@ out float v_heading;
 void main() {
   gl_Position = u_matrix * vec4(a_position, 0.0, 1.0);
   gl_PointSize = u_size;
+  v_color = u_colors[int(a_status)];
   v_pointer = a_status;
   v_badge = ${POINTER_CELLS}.0 + a_vehicle * ${STATUSES.length}.0 + a_status;
   v_heading = a_heading / 256.0 * 6.2831853;
@@ -31,6 +37,8 @@ void main() {
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 uniform sampler2D u_atlas;
+uniform bool u_dots;
+in vec3 v_color;
 in float v_pointer;
 in float v_badge;
 in float v_heading;
@@ -41,6 +49,13 @@ vec4 cell(float index, vec2 uv) {
 }
 
 void main() {
+  if (u_dots) {
+    float r = length(gl_PointCoord * 2.0 - 1.0);
+    if (r > 1.0) discard;
+    // A 1 px white stroke on a 5 px radius, at any pixel ratio.
+    fragColor = r > 0.8 ? vec4(1.0) : vec4(v_color, 1.0);
+    return;
+  }
   vec2 uv = gl_PointCoord;
   // The pointer is drawn facing north; sample it rotated by the heading.
   vec2 d = uv - 0.5;
@@ -56,7 +71,7 @@ void main() {
 }`
 
 /**
- * Draws couriers as sprites straight from typed arrays. Positions are kept in
+ * Draws couriers as sprites or dots straight from typed arrays. Positions are kept in
  * Web Mercator units, the space MapLibre's matrix expects, and uploaded to the
  * GPU in one call when they change. Unlike a GeoJSON source there is nothing
  * to re-tile in a worker, so every update shows up on the next frame.
@@ -64,8 +79,9 @@ void main() {
 export function createGpuRenderer(
   map: MapLibreMap,
   view: FleetView,
-  onApplied: () => void,
+  { markers, onApplied }: RendererOptions,
 ): Renderer {
+  const dots = markers === 'dots'
   let positions = new Float32Array()
   // status, vehicle and packed heading per courier
   let attributes = new Uint8Array()
@@ -129,7 +145,9 @@ export function createGpuRenderer(
         false,
         new Float32Array(defaultProjectionData.mainMatrix),
       )
-      gl.uniform1f(gpu.uniforms.size, SPRITE_SIZE * gpu.ratio)
+      gl.uniform1f(gpu.uniforms.size, (dots ? DOT_SIZE : SPRITE_SIZE) * gpu.ratio)
+      gl.uniform1i(gpu.uniforms.dots, Number(dots))
+      gl.uniform3fv(gpu.uniforms.colors, gpu.colors)
       gl.enable(gl.BLEND)
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       gl.drawArrays(gl.POINTS, 0, count)
@@ -202,7 +220,11 @@ function setUp(gl: WebGL2RenderingContext) {
       matrix: gl.getUniformLocation(program, 'u_matrix'),
       size: gl.getUniformLocation(program, 'u_size'),
       atlas: gl.getUniformLocation(program, 'u_atlas'),
+      dots: gl.getUniformLocation(program, 'u_dots'),
+      colors: gl.getUniformLocation(program, 'u_colors'),
     },
+    // Indexed by status value, like the shader's u_colors.
+    colors: new Float32Array(STATUSES.flatMap((status) => rgb(STATUS_COLORS[status]))),
   }
 }
 
@@ -254,4 +276,9 @@ function mercatorX(lng: number): number {
 
 function mercatorY(lat: number): number {
   return (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))) / 360
+}
+
+function rgb(hex: string): [number, number, number] {
+  const value = Number.parseInt(hex.slice(1), 16)
+  return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255]
 }
