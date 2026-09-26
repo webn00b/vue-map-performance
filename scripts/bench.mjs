@@ -1,5 +1,6 @@
 // Runs every scenario in headless Chromium on the real GPU and prints a
-// Markdown table. Usage: npm run bench [-- <filter>], e.g. `npm run bench -- Clusters`.
+// Markdown table. Usage: npm run bench [-- <filter>] [--dots], e.g.
+// `npm run bench -- Clusters`. `--dots` draws plain dots instead of icons.
 import { chromium } from '@playwright/test'
 import { preview } from 'vite'
 
@@ -21,7 +22,9 @@ const allScenarios = [
   { label: '200k, GPU layer, shallowRef', query: 'n=200000&render=gpu&state=shallow' },
 ]
 
-const filter = process.argv[2]
+const args = process.argv.slice(2)
+const markers = args.includes('--dots') ? 'dots' : 'icons'
+const filter = args.find((arg) => !arg.startsWith('--'))
 const scenarios = filter
   ? allScenarios.filter((scenario) => scenario.label.includes(filter))
   : allScenarios
@@ -42,7 +45,7 @@ try {
 
   const rows = []
   for (const scenario of scenarios) {
-    await page.goto(`http://localhost:${PORT}/?${scenario.query}`)
+    await page.goto(`http://localhost:${PORT}/?${scenario.query}&markers=${markers}`)
     await page.locator('[data-testid=courier-list] button').first().waitFor()
     await page.waitForTimeout(WARMUP_MS)
     await dragMapFor(page, MEASURE_MS)

@@ -22,29 +22,40 @@ Every combination is a link, for example [50,000 couriers in a GeoJSON layer](ht
 
 ## Numbers
 
-`npm run bench` opens every scenario in headless Chromium on the GPU (Apple M3 Pro), waits 5 seconds and then measures for 10 seconds while dragging the map around. 10,000 couriers in stream mode unless noted.
+`npm run bench` opens every scenario in headless Chromium on the GPU (Apple M3 Pro), waits 5 seconds and then measures for 10 seconds while dragging the map around. 10,000 couriers in stream mode with icons unless noted.
 
 | Scenario                      | FPS (lowest) | Map updates / feed messages, per s | Long tasks, ms per 5 s | Update avg / max, ms |
 | ----------------------------- | ------------ | ---------------------------------- | ---------------------- | -------------------- |
-| GPU layer, `shallowRef`       | 60 (60)      | 10 / 10                            | 0                      | 0.4 / 0.8            |
-| GPU layer, `ref`              | 50 (50)      | 10 / 10                            | 0                      | 38.0 / 42.2          |
-| GeoJSON, `shallowRef`         | 61 (60)      | 10 / 10                            | 0                      | 0.3 / 0.6            |
-| GeoJSON, `ref`                | 26 (21)      | 10 / 10                            | 3353                   | 45.8 / 60.0          |
-| Clusters, `shallowRef`        | 60 (58)      | 10 / 10                            | 0                      | 0.7 / 0.8            |
-| DOM markers, `shallowRef`     | 12 (12)      | 9 / 10                             | 4696                   | 3.1 / 5.1            |
-| DOM markers, `ref`            | 8 (7)        | 7 / 10                             | 4908                   | 57.7 / 59.7          |
-| 50k, GPU layer, `shallowRef`  | 60 (60)      | 10 / 10                            | 0                      | 0.8 / 1.3            |
-| 50k, GeoJSON, `shallowRef`    | 32 (32)      | **1 / 10**                         | 538                    | 6.0 / 11.1           |
-| 50k, GeoJSON, `ref`           | 2 (1)        | 2 / 11                             | 4390                   | 349.5 / 369.3        |
-| 200k, GPU layer, `shallowRef` | 60 (60)      | 10 / 10                            | 0                      | 1.7 / 2.0            |
+| GPU layer, `shallowRef`       | 60 (60)      | 10 / 10                            | 0                      | 0.3 / 0.4            |
+| GPU layer, `ref`              | 50 (49)      | 10 / 10                            | 0                      | 41.4 / 47.9          |
+| GeoJSON, `shallowRef`         | 60 (59)      | 10 / 10                            | 0                      | 0.4 / 0.8            |
+| GeoJSON, `ref`                | 19 (17)      | 10 / 10                            | 3654                   | 50.8 / 57.8          |
+| Clusters, `shallowRef`        | 60 (60)      | 10 / 10                            | 0                      | 0.7 / 1.0            |
+| DOM markers, `shallowRef`     | 12 (12)      | 9 / 9                              | 4656                   | 3.2 / 7.6            |
+| DOM markers, `ref`            | 8 (7)        | 7 / 10                             | 4795                   | 58.8 / 62.6          |
+| 50k, GPU layer, `shallowRef`  | 60 (60)      | 10 / 10                            | 0                      | 1.0 / 1.2            |
+| 50k, GeoJSON, `shallowRef`    | 42 (29)      | **0 / 10**                         | 426                    | 6.2 / 10.8           |
+| 50k, GeoJSON, `ref`           | 2 (2)        | 2 / 10                             | 4460                   | 239.3 / 246.3        |
+| 200k, GPU layer, `shallowRef` | 59 (59)      | 10 / 10                            | 0                      | 1.9 / 2.8            |
 
 "Map updates" counts how often new courier data actually reached the screen. "Update" is the time from applying a batch of changes until Vue has flushed and the map layer has been updated; what MapLibre does in its own worker afterwards is not included.
 
+Icons against plain dots (`npm run bench -- --dots`), FPS with the lowest in brackets, both runs back to back. The GPU rows are there for contrast; the other scenarios (clusters, DOM markers, the GPU layer and GeoJSON with `shallowRef` at 10,000) came out the same within noise.
+
+| Scenario                      | Icons   | Dots    |
+| ----------------------------- | ------- | ------- |
+| GeoJSON, `ref`                | 19 (17) | 38 (33) |
+| 50k, GeoJSON, `shallowRef`    | 42 (29) | 58 (57) |
+| 50k, GPU layer, `shallowRef`  | 60 (60) | 60 (60) |
+| 200k, GPU layer, `shallowRef` | 59 (59) | 60 (60) |
+
+Runs vary: rows where the main thread is saturated can move by 10 FPS between runs.
+
 What stands out:
 
-- **FPS doesn't tell you the map is behind.** At 50,000 couriers only one update in ten reaches the screen from the GeoJSON layer: MapLibre re-tiles the whole source in its worker after each update and can't keep up. Positions on screen are about a second old.
+- **FPS doesn't tell you the map is behind.** At 50,000 couriers at most one update in ten reaches the screen from the GeoJSON layer: MapLibre re-tiles the whole source in its worker after each update and can't keep up. Positions on screen are about a second old.
 - **A custom WebGL layer removes that step.** Positions go from typed arrays straight into a GPU buffer, so every update is drawn on the next frame: 10 updates a second at 60 FPS with 200,000 couriers, and no long tasks.
-- **Icons are free on the GPU, not in a symbol layer.** With plain circles the GeoJSON layer held 59 FPS at 50,000 couriers; with the same icons as a symbol layer it's 32. Rotating a heading arrow with `icon-rotate` in a second layer took it down to 16, so the GeoJSON layer uses one image per direction (16 of them) instead. The GPU layer samples a sprite atlas in the shader at the exact heading, and its numbers didn't move. The table uses icons; [dots](https://webn00b.github.io/vue-map-performance/?n=50000&render=webgl&markers=dots) are one switch away.
+- **Icons are free on the GPU, not in a symbol layer.** At 50,000 couriers the GeoJSON layer holds 58 FPS with a circle layer and 42, dipping to 29, with the same couriers as icons in a symbol layer. Rotating a heading arrow with `icon-rotate` in a second layer took it down to 16, so the GeoJSON layer uses one image per direction (16 of them) instead. The GPU layer samples a sprite atlas in the shader at the exact heading and runs at 60 FPS either way, even at 200,000. [Try dots](https://webn00b.github.io/vue-map-performance/?n=50000&render=webgl&markers=dots) vs [icons](https://webn00b.github.io/vue-map-performance/?n=50000&render=webgl) yourself.
 - **`ref` vs `shallowRef` is a 50–100× difference per update.** With `ref`, every courier is a reactive proxy and the deep watcher walks all of them on every change. With `shallowRef`, Vue tracks one reference and the renderers get the list of couriers that moved.
 - **DOM markers don't scale, whatever the state looks like.** The browser repositions every element on each frame of a map move.
 
@@ -67,7 +78,7 @@ npm run dev
 ```sh
 npm test            # unit tests
 npm run test:e2e    # Playwright smoke tests
-npm run bench       # the table above
+npm run bench       # the table above; add -- --dots for plain dots
 ```
 
 `npm run bench` passes `--use-angle=metal` to get the GPU in headless Chromium on macOS. Elsewhere, change the flags in `scripts/bench.mjs`, otherwise WebGL falls back to software rendering and the numbers mean little.
