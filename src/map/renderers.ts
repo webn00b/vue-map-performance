@@ -106,6 +106,9 @@ function createWebglRenderer(
         'text-field': ['get', 'point_count_abbreviated'],
         'text-font': ['Noto Sans Regular'],
         'text-size': 12,
+        // Otherwise counts disappear wherever they collide with base map labels.
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
       },
       paint: { 'text-color': '#fff' },
     })
