@@ -1,5 +1,5 @@
 import type { FeedMode } from '../settings'
-import type { Bounds } from './city'
+import type { City } from './city'
 import { createFleet, stepFleet } from './fleet'
 import { createRandom } from './random'
 
@@ -9,7 +9,7 @@ export interface FeedOptions {
   mode: FeedMode
   /** How often a full snapshot is sent in `snapshot` mode. */
   snapshotIntervalMs: number
-  bounds: Bounds
+  city: City
 }
 
 // Plain ArrayBuffers (not shared), so they can be transferred to the main thread.
@@ -29,7 +29,7 @@ export const TIME_SCALE = 10
 export const REPORT_INTERVAL_MS = 1000
 
 export function createFeed(options: FeedOptions) {
-  const fleet = createFleet(options.count, options.seed, options.bounds)
+  const fleet = createFleet(options.count, options.seed, options.city)
   const phaseRandom = createRandom(options.seed + 1)
   const phases = Float64Array.from(
     { length: options.count },

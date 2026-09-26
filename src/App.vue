@@ -7,7 +7,7 @@ import { Map as MapLibreMap } from './map/maplibre'
 import { createRenderer, type Renderer } from './map/renderers'
 import { useMetrics } from './metrics/useMetrics'
 import { normalizeSettings, parseSettings, serializeSettings, type Settings } from './settings'
-import { MOSCOW_CENTER } from './simulation/city'
+import { TORONTO } from './simulation/city'
 import type { WorkerCommand, WorkerMessage } from './simulation/worker'
 import { useCouriers } from './state/useCouriers'
 
@@ -88,8 +88,8 @@ onMounted(() => {
   map = new MapLibreMap({
     container: container.value!,
     style: 'https://tiles.openfreemap.org/styles/positron',
-    center: MOSCOW_CENTER,
-    zoom: 10,
+    center: TORONTO.center,
+    zoom: 10.5,
   })
   map.on('load', () => {
     mapReady.value = true

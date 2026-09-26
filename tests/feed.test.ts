@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { MOSCOW } from '../src/simulation/city'
+import { TORONTO } from '../src/simulation/city'
 import { MAX_SPEED, METERS_PER_DEGREE } from '../src/simulation/fleet'
 import { useCouriers } from '../src/state/useCouriers'
 import {
@@ -10,7 +10,7 @@ import {
   type FeedMessage,
 } from '../src/simulation/feed'
 
-const options = { count: 300, seed: 11, snapshotIntervalMs: 3000, bounds: MOSCOW }
+const options = { count: 300, seed: 11, snapshotIntervalMs: 3000, city: TORONTO }
 
 function run(feed: ReturnType<typeof createFeed>, ms: number): FeedMessage[] {
   const out: FeedMessage[] = []
@@ -70,7 +70,7 @@ describe('stream mode', () => {
     // snapshot by at most one interval of movement at top speed. A degree of
     // longitude is shortest at the northern edge, which gives the widest bound.
     const maxLagMeters = MAX_SPEED * TIME_SCALE * (REPORT_INTERVAL_MS / 1000)
-    const metersPerDegreeLng = METERS_PER_DEGREE * Math.cos((MOSCOW.north * Math.PI) / 180)
+    const metersPerDegreeLng = METERS_PER_DEGREE * Math.cos((TORONTO.bounds.north * Math.PI) / 180)
     const maxLagDegrees = maxLagMeters / metersPerDegreeLng
     for (let i = 0; i < options.count; i++) {
       expect(Math.abs(store.view.lng(i) - full!.positions[i * 2]!)).toBeLessThan(maxLagDegrees)

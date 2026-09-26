@@ -1,4 +1,4 @@
-import type { Bounds } from './city'
+import type { City } from './city'
 import { createRandom } from './random'
 
 export const Status = {
@@ -18,7 +18,7 @@ export const MAX_SPEED = 16
  */
 export interface Fleet {
   readonly count: number
-  readonly bounds: Bounds
+  readonly city: City
   /** [lng0, lat0, lng1, lat1, ...] */
   readonly positions: Float32Array
   readonly targets: Float32Array
@@ -28,11 +28,11 @@ export interface Fleet {
   readonly random: () => number
 }
 
-export function createFleet(count: number, seed: number, bounds: Bounds): Fleet {
+export function createFleet(count: number, seed: number, city: City): Fleet {
   const random = createRandom(seed)
   const fleet: Fleet = {
     count,
-    bounds,
+    city,
     positions: new Float32Array(count * 2),
     targets: new Float32Array(count * 2),
     speeds: new Float32Array(count),
@@ -83,7 +83,13 @@ function nextStatus(status: Status): Status {
 }
 
 function setRandomPoint(fleet: Fleet, target: Float32Array, i: number): void {
-  const { west, south, east, north } = fleet.bounds
-  target[i * 2] = west + fleet.random() * (east - west)
-  target[i * 2 + 1] = south + fleet.random() * (north - south)
+  const { west, south, east, north } = fleet.city.bounds
+  let lng: number
+  let lat: number
+  do {
+    lng = west + fleet.random() * (east - west)
+    lat = south + fleet.random() * (north - south)
+  } while (!fleet.city.contains(lng, lat))
+  target[i * 2] = lng
+  target[i * 2 + 1] = lat
 }
