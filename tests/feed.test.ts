@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { MOSCOW } from '../src/simulation/city'
 import { MAX_SPEED, METERS_PER_DEGREE } from '../src/simulation/fleet'
+import { useCouriers } from '../src/state/useCouriers'
 import {
   createFeed,
   REPORT_INTERVAL_MS,
@@ -42,18 +43,27 @@ describe('stream mode', () => {
     expect(new Set(reports)).toEqual(new Set([5]))
   })
 
-  test('deltas applied on top of the initial snapshot match a full snapshot', () => {
+  test('regular ticks report the same couriers as checking every courier', () => {
+    const grouped = createFeed({ ...options, mode: 'stream' })
+    const scanned = createFeed({ ...options, mode: 'stream' })
+    const ids = (message: FeedMessage | undefined) =>
+      message?.type === 'delta' ? [...message.indices] : []
+
+    for (let tick = 0; tick < 25; tick++) {
+      // Two half ticks can't use the groups, so they go through the full check.
+      const expected = [...ids(scanned.tick(TICK_MS / 2)), ...ids(scanned.tick(TICK_MS / 2))]
+      expect(ids(grouped.tick())).toEqual(expected.sort((a, b) => a - b))
+    }
+  })
+
+  test('deltas applied on top of the initial snapshot match a full snapshot', async () => {
     const stream = createFeed({ ...options, mode: 'stream' })
     const snapshot = createFeed({ ...options, mode: 'snapshot', snapshotIntervalMs: 2000 })
 
-    const state = stream.initial().positions
-    for (const message of run(stream, 2000)) {
-      if (message.type !== 'delta') continue
-      message.indices.forEach((courier, k) => {
-        state[courier * 2] = message.positions[k * 2]!
-        state[courier * 2 + 1] = message.positions[k * 2 + 1]!
-      })
-    }
+    const store = useCouriers('shallow')
+    store.receive(stream.initial())
+    run(stream, 2000).forEach(store.receive)
+    await store.flush()
     const [full] = run(snapshot, 2000)
 
     // Each courier reported within the last interval, so the stream can lag the
@@ -62,8 +72,9 @@ describe('stream mode', () => {
     const maxLagMeters = MAX_SPEED * TIME_SCALE * (REPORT_INTERVAL_MS / 1000)
     const metersPerDegreeLng = METERS_PER_DEGREE * Math.cos((MOSCOW.north * Math.PI) / 180)
     const maxLagDegrees = maxLagMeters / metersPerDegreeLng
-    state.forEach((value, i) => {
-      expect(Math.abs(value - full!.positions[i]!)).toBeLessThan(maxLagDegrees)
-    })
+    for (let i = 0; i < options.count; i++) {
+      expect(Math.abs(store.view.lng(i) - full!.positions[i * 2]!)).toBeLessThan(maxLagDegrees)
+      expect(Math.abs(store.view.lat(i) - full!.positions[i * 2 + 1]!)).toBeLessThan(maxLagDegrees)
+    }
   })
 })
