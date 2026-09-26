@@ -12,6 +12,13 @@ async function waitForCouriers(page: Page) {
   await expect(page.getByTestId('courier-list').getByRole('button').first()).toBeVisible()
 }
 
+/** Waits until the metrics have reported a processed update, i.e. the new mode is running. */
+async function waitForUpdates(page: Page) {
+  await expect(page.getByTestId('metrics')).not.toHaveAttribute('data-flush-ms', '0', {
+    timeout: 10_000,
+  })
+}
+
 test('switches through every mode without errors', async ({ page }) => {
   const errors = trackErrors(page)
   await page.goto('/')
@@ -27,7 +34,8 @@ test('switches through every mode without errors', async ({ page }) => {
     'render-webgl',
   ]) {
     await page.getByTestId(id).click()
-    await page.waitForTimeout(1500)
+    await expect(page.getByTestId(id)).toHaveClass(/active/)
+    await waitForUpdates(page)
   }
 
   await expect(page.getByRole('alert')).toHaveCount(0)

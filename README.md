@@ -25,20 +25,20 @@ Every combination is a link, for example [10,000 couriers with a deep `ref`](htt
 
 | Scenario                  | FPS (lowest) | Long tasks, ms per 5 s | Update avg / max, ms |
 | ------------------------- | ------------ | ---------------------- | -------------------- |
-| WebGL, `shallowRef`       | 60 (60)      | 0                      | 0.2 / 0.4            |
-| WebGL, `ref`              | 40 (40)      | 2754                   | 38.4 / 43.9          |
-| Clusters, `shallowRef`    | 60 (60)      | 0                      | 0.5 / 4.8            |
-| Clusters, `ref`           | 36 (35)      | 3062                   | 49.8 / 66.5          |
-| DOM markers, `shallowRef` | 4 (3)        | 4519                   | 15.8 / 58.4          |
-| DOM markers, `ref`        | 5 (3)        | 4926                   | 105.9 / 160.6        |
-| 50k, WebGL, `shallowRef`  | 48 (39)      | 563                    | 10.4 / 35.7          |
-| 50k, WebGL, `ref`         | 2 (2)        | 4747                   | 298.8 / 359.3        |
+| WebGL, `shallowRef`       | 60 (60)      | 0                      | 0.3 / 0.5            |
+| WebGL, `ref`              | 34 (34)      | 2565                   | 43.4 / 59.0          |
+| Clusters, `shallowRef`    | 61 (60)      | 0                      | 0.4 / 0.5            |
+| Clusters, `ref`           | 42 (40)      | 2403                   | 35.0 / 38.6          |
+| DOM markers, `shallowRef` | 14 (12)      | 4319                   | 3.0 / 5.7            |
+| DOM markers, `ref`        | 10 (8)       | 4797                   | 56.3 / 68.4          |
+| 50k, WebGL, `shallowRef`  | 58 (57)      | 229                    | 4.1 / 6.3            |
+| 50k, WebGL, `ref`         | 3 (3)        | 5115                   | 177.4 / 185.6        |
 
-"Update" is the time from applying a batch of changes until Vue has flushed everything it triggered, the map update included.
+"Update" is the time from applying a batch of changes until Vue has flushed and the map layer has been updated. What MapLibre does in its own worker afterwards is not included, in either mode; FPS and long tasks cover everything.
 
 What stands out:
 
-- **The same WebGL layer updates about 190 times faster with `shallowRef`.** With `ref`, every courier is a reactive proxy, the deep watcher walks all 10,000 of them on every change and the GeoJSON is rebuilt by reading through proxies. With `shallowRef`, Vue tracks one reference and the layer gets a diff of the couriers that moved.
+- **The same WebGL layer updates about 140 times faster with `shallowRef`.** With `ref`, every courier is a reactive proxy, the deep watcher walks all 10,000 of them on every change and the GeoJSON is rebuilt by reading through proxies. With `shallowRef`, Vue tracks one reference and the layer gets a diff of the couriers that moved.
 - **DOM markers don't scale, whatever the state looks like.** The browser repositions 10,000 elements on every frame of a map move.
 - **Clusters are cheap per update** but re-run over the whole fleet, so they suffer from the deep watcher just as much.
 

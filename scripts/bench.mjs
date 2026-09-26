@@ -1,13 +1,13 @@
 // Runs every scenario in headless Chromium on the real GPU and prints a
-// Markdown table. Usage: npm run bench
-import { spawn } from 'node:child_process'
+// Markdown table. Usage: npm run bench [-- <filter>], e.g. `npm run bench -- Clusters`.
 import { chromium } from '@playwright/test'
+import { preview } from 'vite'
 
 const PORT = 4180
 const WARMUP_MS = 5000
 const MEASURE_MS = 10_000
 
-const scenarios = [
+const allScenarios = [
   { label: 'WebGL, shallowRef', query: 'n=10000&render=webgl&state=shallow' },
   { label: 'WebGL, deep ref', query: 'n=10000&render=webgl&state=deep' },
   { label: 'Clusters, shallowRef', query: 'n=10000&render=cluster&state=shallow' },
@@ -18,12 +18,14 @@ const scenarios = [
   { label: '50k, WebGL, deep ref', query: 'n=50000&render=webgl&state=deep' },
 ]
 
-const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], {
-  stdio: 'ignore',
-})
+const filter = process.argv[2]
+const scenarios = filter
+  ? allScenarios.filter((scenario) => scenario.label.includes(filter))
+  : allScenarios
+
+const server = await preview({ preview: { port: PORT, strictPort: true }, logLevel: 'silent' })
 
 try {
-  await waitForServer(`http://localhost:${PORT}`)
   const browser = await chromium.launch({
     // Without these, headless Chromium falls back to software WebGL.
     args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'],
@@ -55,7 +57,7 @@ try {
     )
   }
 } finally {
-  server.kill()
+  await server.close()
 }
 
 /** Pans the map back and forth, like a user looking around. */
@@ -84,16 +86,4 @@ async function readMetrics(page) {
       flushMaxMs: read('flushMaxMs', 1),
     }
   })
-}
-
-async function waitForServer(url) {
-  for (let attempt = 0; attempt < 50; attempt++) {
-    try {
-      if ((await fetch(url)).ok) return
-    } catch {
-      // not up yet
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200))
-  }
-  throw new Error(`Preview server did not start at ${url}`)
 }
