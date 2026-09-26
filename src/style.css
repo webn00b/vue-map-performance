@@ -1,0 +1,27 @@
+:root {
+  --panel-bg: rgb(255 255 255 / 0.94);
+  --text: #1f2328;
+  --muted: #656d76;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --warn: #9a6700;
+  --bad: #cf222e;
+  --good: #1a7f37;
+  font:
+    13px/1.4 system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
