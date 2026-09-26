@@ -8,14 +8,17 @@ const WARMUP_MS = 5000
 const MEASURE_MS = 10_000
 
 const allScenarios = [
-  { label: 'WebGL, shallowRef', query: 'n=10000&render=webgl&state=shallow' },
-  { label: 'WebGL, deep ref', query: 'n=10000&render=webgl&state=deep' },
+  { label: 'GPU layer, shallowRef', query: 'n=10000&render=gpu&state=shallow' },
+  { label: 'GPU layer, deep ref', query: 'n=10000&render=gpu&state=deep' },
+  { label: 'GeoJSON, shallowRef', query: 'n=10000&render=webgl&state=shallow' },
+  { label: 'GeoJSON, deep ref', query: 'n=10000&render=webgl&state=deep' },
   { label: 'Clusters, shallowRef', query: 'n=10000&render=cluster&state=shallow' },
-  { label: 'Clusters, deep ref', query: 'n=10000&render=cluster&state=deep' },
   { label: 'DOM markers, shallowRef', query: 'n=10000&render=dom&state=shallow' },
   { label: 'DOM markers, deep ref', query: 'n=10000&render=dom&state=deep' },
-  { label: '50k, WebGL, shallowRef', query: 'n=50000&render=webgl&state=shallow' },
-  { label: '50k, WebGL, deep ref', query: 'n=50000&render=webgl&state=deep' },
+  { label: '50k, GPU layer, shallowRef', query: 'n=50000&render=gpu&state=shallow' },
+  { label: '50k, GeoJSON, shallowRef', query: 'n=50000&render=webgl&state=shallow' },
+  { label: '50k, GeoJSON, deep ref', query: 'n=50000&render=webgl&state=deep' },
+  { label: '200k, GPU layer, shallowRef', query: 'n=200000&render=gpu&state=shallow' },
 ]
 
 const filter = process.argv[2]
@@ -49,11 +52,13 @@ try {
   await browser.close()
 
   console.log(`GPU: ${gpu}\n`)
-  console.log('| Scenario | FPS (lowest) | Long tasks, ms / 5 s | Update avg / max, ms |')
-  console.log('| --- | --- | --- | --- |')
+  console.log(
+    '| Scenario | FPS (lowest) | Map updates / feed, per s | Long tasks, ms / 5 s | Update avg / max, ms |',
+  )
+  console.log('| --- | --- | --- | --- | --- |')
   for (const row of rows) {
     console.log(
-      `| ${row.label} | ${row.fps} (${row.fpsLow}) | ${row.longTaskMs} | ${row.flushMs} / ${row.flushMaxMs} |`,
+      `| ${row.label} | ${row.fps} (${row.fpsLow}) | ${row.mapUpdates} / ${row.feedMessages} | ${row.longTaskMs} | ${row.flushMs} / ${row.flushMaxMs} |`,
     )
   }
 } finally {
@@ -84,6 +89,8 @@ async function readMetrics(page) {
       longTaskMs: read('longTaskMs'),
       flushMs: read('flushMs', 1),
       flushMaxMs: read('flushMaxMs', 1),
+      mapUpdates: read('mapUpdates'),
+      feedMessages: read('feedMessages'),
     }
   })
 }
