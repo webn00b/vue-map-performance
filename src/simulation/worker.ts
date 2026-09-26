@@ -26,8 +26,13 @@ self.onmessage = (event: MessageEvent<WorkerCommand>) => {
   const feed = createFeed({ ...command, city: TORONTO })
   const post = (message: FeedMessage) => {
     // Transfer the buffers instead of structured-cloning them.
-    const buffers: ArrayBuffer[] = [message.positions.buffer, message.statuses.buffer]
+    const buffers: ArrayBuffer[] = [
+      message.positions.buffer,
+      message.statuses.buffer,
+      message.headings.buffer,
+    ]
     if (message.type === 'delta') buffers.push(message.indices.buffer)
+    else buffers.push(message.vehicles.buffer)
     self.postMessage({ run: command.run, message } satisfies WorkerMessage, { transfer: buffers })
   }
 

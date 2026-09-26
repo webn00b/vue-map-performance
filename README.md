@@ -6,7 +6,7 @@ Thousands of couriers moving on a map in Vue 3, with live numbers for what keeps
 
 **[Open the demo](https://webn00b.github.io/vue-map-performance/)**
 
-![5,000 couriers on the map with the settings and live metrics panels](docs/screenshot.webp)
+![2,000 couriers in Toronto with vehicle icons, the settings and live metrics panels](docs/screenshot.webp)
 
 ## What you can switch
 
@@ -25,24 +25,25 @@ Every combination is a link, for example [50,000 couriers in a GeoJSON layer](ht
 
 | Scenario                      | FPS (lowest) | Map updates / feed messages, per s | Long tasks, ms per 5 s | Update avg / max, ms |
 | ----------------------------- | ------------ | ---------------------------------- | ---------------------- | -------------------- |
-| GPU layer, `shallowRef`       | 60 (60)      | 10 / 10                            | 0                      | 0.6 / 0.9            |
-| GPU layer, `ref`              | 50 (48)      | 10 / 10                            | 0                      | 35.3 / 38.0          |
-| GeoJSON, `shallowRef`         | 61 (59)      | 10 / 10                            | 0                      | 0.3 / 0.5            |
-| GeoJSON, `ref`                | 49 (48)      | 10 / 10                            | 0                      | 29.5 / 33.0          |
-| Clusters, `shallowRef`        | 60 (59)      | 10 / 10                            | 0                      | 0.4 / 0.5            |
-| DOM markers, `shallowRef`     | 14 (14)      | 10 / 10                            | 4103                   | 2.5 / 4.2            |
-| DOM markers, `ref`            | 9 (8)        | 9 / 11                             | 4877                   | 47.1 / 55.4          |
-| 50k, GPU layer, `shallowRef`  | 60 (60)      | 10 / 10                            | 0                      | 1.0 / 1.4            |
-| 50k, GeoJSON, `shallowRef`    | 59 (57)      | **1 / 10**                         | 212                    | 2.5 / 4.6            |
-| 50k, GeoJSON, `ref`           | 4 (3)        | 4 / 9                              | 4698                   | 145.8 / 151.1        |
-| 200k, GPU layer, `shallowRef` | 60 (60)      | 10 / 10                            | 0                      | 2.3 / 3.0            |
+| GPU layer, `shallowRef`       | 60 (60)      | 10 / 10                            | 0                      | 0.4 / 0.8            |
+| GPU layer, `ref`              | 50 (50)      | 10 / 10                            | 0                      | 38.0 / 42.2          |
+| GeoJSON, `shallowRef`         | 61 (60)      | 10 / 10                            | 0                      | 0.3 / 0.6            |
+| GeoJSON, `ref`                | 26 (21)      | 10 / 10                            | 3353                   | 45.8 / 60.0          |
+| Clusters, `shallowRef`        | 60 (58)      | 10 / 10                            | 0                      | 0.7 / 0.8            |
+| DOM markers, `shallowRef`     | 12 (12)      | 9 / 10                             | 4696                   | 3.1 / 5.1            |
+| DOM markers, `ref`            | 8 (7)        | 7 / 10                             | 4908                   | 57.7 / 59.7          |
+| 50k, GPU layer, `shallowRef`  | 60 (60)      | 10 / 10                            | 0                      | 0.8 / 1.3            |
+| 50k, GeoJSON, `shallowRef`    | 32 (32)      | **1 / 10**                         | 538                    | 6.0 / 11.1           |
+| 50k, GeoJSON, `ref`           | 2 (1)        | 2 / 11                             | 4390                   | 349.5 / 369.3        |
+| 200k, GPU layer, `shallowRef` | 60 (60)      | 10 / 10                            | 0                      | 1.7 / 2.0            |
 
 "Map updates" counts how often new courier data actually reached the screen. "Update" is the time from applying a batch of changes until Vue has flushed and the map layer has been updated; what MapLibre does in its own worker afterwards is not included.
 
 What stands out:
 
-- **FPS can look fine while the map lags.** At 50,000 couriers the GeoJSON layer still renders at 59 FPS, but only one update in ten reaches the screen: MapLibre re-tiles the whole source in its worker after each update and can't keep up. Positions on screen are about a second old.
+- **FPS doesn't tell you the map is behind.** At 50,000 couriers only one update in ten reaches the screen from the GeoJSON layer: MapLibre re-tiles the whole source in its worker after each update and can't keep up. Positions on screen are about a second old.
 - **A custom WebGL layer removes that step.** Positions go from typed arrays straight into a GPU buffer, so every update is drawn on the next frame: 10 updates a second at 60 FPS with 200,000 couriers, and no long tasks.
+- **Icons are free on the GPU, not in a symbol layer.** With plain circles the GeoJSON layer held 59 FPS at 50,000 couriers; with the same icons as a symbol layer it's 32. Rotating a heading arrow with `icon-rotate` in a second layer took it down to 16, so the GeoJSON layer uses one image per direction (16 of them) instead. The GPU layer samples a sprite atlas in the shader at the exact heading, and its numbers didn't move.
 - **`ref` vs `shallowRef` is a 50–100× difference per update.** With `ref`, every courier is a reactive proxy and the deep watcher walks all of them on every change. With `shallowRef`, Vue tracks one reference and the renderers get the list of couriers that moved.
 - **DOM markers don't scale, whatever the state looks like.** The browser repositions every element on each frame of a map move.
 
@@ -51,7 +52,8 @@ What stands out:
 - **Simulation** runs in a Web Worker with a seeded PRNG, so the same settings always produce the same movement. Positions live in typed arrays and are transferred to the page without copying.
 - **Stream mode** sends only the couriers that reported in the last tick; the page applies everything that arrived once per animation frame. **Snapshot mode** sends the whole fleet every few seconds.
 - **State** is held either as an array of objects in `ref()` with a deep watcher, the way it is usually written, or as typed arrays in `shallowRef()` updated in place and announced with `triggerRef()`.
-- **Rendering**: DOM mode uses one `maplibregl.Marker` per courier. GeoJSON mode keeps everyone in a single GeoJSON source and sends small stream updates through `updateData` with the changed features only; cluster mode uses the source's built-in clustering. The GPU layer is a MapLibre custom layer: positions are converted to Web Mercator into a `Float32Array`, uploaded with `bufferSubData` and drawn as points by a small shader, with no GeoJSON or worker involved.
+- **Icons** are [Lucide](https://lucide.dev) glyphs for the vehicle (bike, scooter, car) on a badge in the status color, with an arrow showing the direction of travel. They are drawn once into canvases at the screen's pixel ratio and reused by every mode: as `<img>` sources for DOM markers, as MapLibre images for GeoJSON, and as a texture atlas for the GPU layer. The map stays north-up, since headings are drawn relative to the screen.
+- **Rendering**: DOM mode uses one `maplibregl.Marker` per courier. GeoJSON mode keeps everyone in a single GeoJSON source and sends small stream updates through `updateData` with the changed features only; cluster mode uses the source's built-in clustering. The GPU layer is a MapLibre custom layer: positions are converted to Web Mercator into a `Float32Array`, uploaded with `bufferSubData` and drawn as point sprites by a small shader, with no GeoJSON or worker involved.
 - **Metrics** come from `requestAnimationFrame` (FPS), `PerformanceObserver` (long tasks) and `performance.memory` (Chromium only). Map updates are counted when data reaches the screen: after each DOM update, on MapLibre's `sourcedata` event for GeoJSON, and when the GPU layer uploads a new buffer.
 
 ## Run it
@@ -75,4 +77,4 @@ I've dealt with the same problems at work on Yandex Maps. This is a clean-room v
 
 ## License
 
-MIT. Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, tiles by OpenFreeMap and OpenMapTiles.
+MIT. Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, tiles by OpenFreeMap and OpenMapTiles. Vehicle icons from [Lucide](https://lucide.dev) (ISC).

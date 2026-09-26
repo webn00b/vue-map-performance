@@ -13,14 +13,25 @@ export interface FeedOptions {
 }
 
 // Plain ArrayBuffers (not shared), so they can be transferred to the main thread.
+// Headings are packed into a byte each (256 steps per turn, ~1.4°).
 export type FeedMessage =
-  | { type: 'snapshot'; positions: Float32Array<ArrayBuffer>; statuses: Uint8Array<ArrayBuffer> }
+  | {
+      type: 'snapshot'
+      positions: Float32Array<ArrayBuffer>
+      statuses: Uint8Array<ArrayBuffer>
+      vehicles: Uint8Array<ArrayBuffer>
+      headings: Uint8Array<ArrayBuffer>
+    }
   | {
       type: 'delta'
       indices: Uint32Array<ArrayBuffer>
       positions: Float32Array<ArrayBuffer>
       statuses: Uint8Array<ArrayBuffer>
+      headings: Uint8Array<ArrayBuffer>
     }
+
+export const packHeading = (degrees: number) => Math.round((degrees / 360) * 256) & 255
+export const unpackHeading = (packed: number) => (packed / 256) * 360
 
 export const TICK_MS = 100
 /** Simulated time runs faster than real time, otherwise nothing visibly moves at city zoom. */
@@ -48,6 +59,8 @@ export function createFeed(options: FeedOptions) {
     type: 'snapshot',
     positions: fleet.positions.slice(),
     statuses: fleet.statuses.slice(),
+    vehicles: fleet.vehicles.slice(),
+    headings: Uint8Array.from(fleet.headings, packHeading),
   })
 
   const reportedBetween = (from: number, to: number): Uint32Array => {
@@ -69,12 +82,14 @@ export function createFeed(options: FeedOptions) {
     const indices = reported.slice()
     const positions = new Float32Array(indices.length * 2)
     const statuses = new Uint8Array(indices.length)
+    const headings = new Uint8Array(indices.length)
     indices.forEach((courier, k) => {
       positions[k * 2] = fleet.positions[courier * 2]!
       positions[k * 2 + 1] = fleet.positions[courier * 2 + 1]!
       statuses[k] = fleet.statuses[courier]!
+      headings[k] = packHeading(fleet.headings[courier]!)
     })
-    return { type: 'delta', indices, positions, statuses }
+    return { type: 'delta', indices, positions, statuses, headings }
   }
 
   return {

@@ -1,42 +1,62 @@
-import { STATUS_COLORS } from '../colors'
-import { Status } from '../simulation/fleet'
+import { packHeading } from '../simulation/feed'
 import type { FleetView } from '../state/useCouriers'
+import { createSprite, drawBadge, drawPointer, SPRITE_SIZE, STATUSES, VEHICLES } from './icons'
 import type { CustomLayerInterface, Map as MapLibreMap } from './maplibre'
 import type { Renderer } from './renderers'
 
 const LAYER_ID = 'couriers-gpu'
-/** Same look as the GeoJSON circle layer: 4 px radius plus a 1 px white stroke. */
-const POINT_SIZE = 10
+/** Atlas layout: one pointer per status, then a badge per vehicle and status. */
+const POINTER_CELLS = STATUSES.length
+const CELLS = POINTER_CELLS + VEHICLES.length * STATUSES.length
 
 const VERTEX_SHADER = `#version 300 es
 uniform mat4 u_matrix;
 uniform float u_size;
-uniform vec3 u_colors[3];
 in vec2 a_position;
 in float a_status;
-out vec3 v_color;
+in float a_vehicle;
+in float a_heading;
+out float v_pointer;
+out float v_badge;
+out float v_heading;
 
 void main() {
   gl_Position = u_matrix * vec4(a_position, 0.0, 1.0);
   gl_PointSize = u_size;
-  v_color = u_colors[int(a_status)];
+  v_pointer = a_status;
+  v_badge = ${POINTER_CELLS}.0 + a_vehicle * ${STATUSES.length}.0 + a_status;
+  v_heading = a_heading / 256.0 * 6.2831853;
 }`
 
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
-uniform float u_size;
-in vec3 v_color;
+uniform sampler2D u_atlas;
+in float v_pointer;
+in float v_badge;
+in float v_heading;
 out vec4 fragColor;
 
+vec4 cell(float index, vec2 uv) {
+  return texture(u_atlas, vec2((index + uv.x) / ${CELLS}.0, uv.y));
+}
+
 void main() {
-  float r = length(gl_PointCoord * 2.0 - 1.0);
-  if (r > 1.0) discard;
-  // The outer pixel of the radius is the white stroke.
-  fragColor = r > 1.0 - 2.0 / u_size ? vec4(1.0) : vec4(v_color, 1.0);
+  vec2 uv = gl_PointCoord;
+  // The pointer is drawn facing north; sample it rotated by the heading.
+  vec2 d = uv - 0.5;
+  float s = sin(v_heading);
+  float c = cos(v_heading);
+  vec2 rotated = vec2(c * d.x + s * d.y, -s * d.x + c * d.y) + 0.5;
+  bool inside = all(greaterThanEqual(rotated, vec2(0.0))) && all(lessThanEqual(rotated, vec2(1.0)));
+  vec4 pointer = inside ? cell(v_pointer, rotated) : vec4(0.0);
+  vec4 badge = cell(v_badge, uv);
+  // Premultiplied alpha: the badge goes over the pointer.
+  fragColor = badge + pointer * (1.0 - badge.a);
+  if (fragColor.a == 0.0) discard;
 }`
 
 /**
- * Draws couriers as points straight from typed arrays. Positions are kept in
+ * Draws couriers as sprites straight from typed arrays. Positions are kept in
  * Web Mercator units, the space MapLibre's matrix expects, and uploaded to the
  * GPU in one call when they change. Unlike a GeoJSON source there is nothing
  * to re-tile in a worker, so every update shows up on the next frame.
@@ -47,7 +67,8 @@ export function createGpuRenderer(
   onApplied: () => void,
 ): Renderer {
   let positions = new Float32Array()
-  let statuses = new Uint8Array()
+  // status, vehicle and packed heading per courier
+  let attributes = new Uint8Array()
   let dirty = true
   let uploaded = -1 // courier count the GPU buffers were sized for
   let gpu: ReturnType<typeof setUp> | undefined
@@ -55,14 +76,16 @@ export function createGpuRenderer(
   const write = (i: number) => {
     positions[i * 2] = mercatorX(view.lng(i))
     positions[i * 2 + 1] = mercatorY(view.lat(i))
-    statuses[i] = view.status(i)
+    attributes[i * 3] = view.status(i)
+    attributes[i * 3 + 1] = view.vehicle(i)
+    attributes[i * 3 + 2] = packHeading(view.heading(i))
   }
 
   const update = (changed: Uint32Array | null) => {
     const count = view.count()
-    if (statuses.length !== count) {
+    if (positions.length !== count * 2) {
       positions = new Float32Array(count * 2)
-      statuses = new Uint8Array(count)
+      attributes = new Uint8Array(count * 3)
       changed = null
     }
     if (changed) changed.forEach(write)
@@ -80,39 +103,43 @@ export function createGpuRenderer(
     },
     render(gl, { defaultProjectionData }) {
       if (!gpu) return
+      const count = positions.length / 2
       gl.useProgram(gpu.program)
       gl.bindVertexArray(gpu.vao)
       if (dirty) {
         // Reallocate only when the fleet size changes; otherwise overwrite in place.
-        const resize = uploaded !== statuses.length
+        const resize = uploaded !== count
         const upload = (buffer: WebGLBuffer, data: ArrayBufferView) => {
           gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
           if (resize) gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW)
           else gl.bufferSubData(gl.ARRAY_BUFFER, 0, data)
         }
         upload(gpu.positionBuffer, positions)
-        upload(gpu.statusBuffer, statuses)
-        uploaded = statuses.length
+        upload(gpu.attributeBuffer, attributes)
+        uploaded = count
         dirty = false
         onApplied()
       }
+      gl.activeTexture(gl.TEXTURE0)
+      gl.bindTexture(gl.TEXTURE_2D, gpu.atlas)
+      gl.uniform1i(gpu.uniforms.atlas, 0)
       // Maps Web Mercator 0..1 to clip space; enough for a mercator-only layer.
       gl.uniformMatrix4fv(
         gpu.uniforms.matrix,
         false,
         new Float32Array(defaultProjectionData.mainMatrix),
       )
-      gl.uniform1f(gpu.uniforms.size, POINT_SIZE * window.devicePixelRatio)
-      gl.uniform3fv(gpu.uniforms.colors, gpu.colors)
+      gl.uniform1f(gpu.uniforms.size, SPRITE_SIZE * gpu.ratio)
       gl.enable(gl.BLEND)
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
-      gl.drawArrays(gl.POINTS, 0, statuses.length)
+      gl.drawArrays(gl.POINTS, 0, count)
       gl.bindVertexArray(null)
     },
     onRemove(_map, gl) {
       if (!gpu) return
       gl.deleteBuffer(gpu.positionBuffer)
-      gl.deleteBuffer(gpu.statusBuffer)
+      gl.deleteBuffer(gpu.attributeBuffer)
+      gl.deleteTexture(gpu.atlas)
       gl.deleteVertexArray(gpu.vao)
       gl.deleteProgram(gpu.program)
       gpu = undefined
@@ -142,27 +169,58 @@ function setUp(gl: WebGL2RenderingContext) {
 
   const vao = gl.createVertexArray()
   gl.bindVertexArray(vao)
-  const positionBuffer = attribute(gl, program, 'a_position', 2, gl.FLOAT)
-  const statusBuffer = attribute(gl, program, 'a_status', 1, gl.UNSIGNED_BYTE)
+  const positionBuffer = gl.createBuffer()
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
+  attribute(gl, program, 'a_position', 2, gl.FLOAT, 0, 0)
+  const attributeBuffer = gl.createBuffer()
+  gl.bindBuffer(gl.ARRAY_BUFFER, attributeBuffer)
+  attribute(gl, program, 'a_status', 1, gl.UNSIGNED_BYTE, 3, 0)
+  attribute(gl, program, 'a_vehicle', 1, gl.UNSIGNED_BYTE, 3, 1)
+  attribute(gl, program, 'a_heading', 1, gl.UNSIGNED_BYTE, 3, 2)
   gl.bindVertexArray(null)
+
+  // One texel per device pixel, so NEAREST filtering is sharp and cells don't bleed.
+  const ratio = window.devicePixelRatio
+  const atlas = gl.createTexture()
+  gl.bindTexture(gl.TEXTURE_2D, atlas)
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, drawAtlas(ratio))
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
   return {
     program,
     vao,
     positionBuffer,
-    statusBuffer,
+    attributeBuffer,
+    atlas,
+    ratio,
     uniforms: {
       matrix: gl.getUniformLocation(program, 'u_matrix'),
       size: gl.getUniformLocation(program, 'u_size'),
-      colors: gl.getUniformLocation(program, 'u_colors'),
+      atlas: gl.getUniformLocation(program, 'u_atlas'),
     },
-    // Indexed by status value, like the shader's u_colors[3].
-    colors: new Float32Array(
-      [Status.Idle, Status.Delivering, Status.Returning].flatMap((status) =>
-        rgb(STATUS_COLORS[status]),
-      ),
-    ),
   }
+}
+
+/** All sprites in one row, in the order the shaders index them. */
+function drawAtlas(ratio: number): HTMLCanvasElement {
+  const size = Math.round(SPRITE_SIZE * ratio)
+  const atlas = document.createElement('canvas')
+  atlas.width = size * CELLS
+  atlas.height = size
+  const context = atlas.getContext('2d')!
+  const sprites = [
+    ...STATUSES.map((status) => createSprite((c) => drawPointer(c, status), ratio)),
+    ...VEHICLES.flatMap((vehicle) =>
+      STATUSES.map((status) => createSprite((c) => drawBadge(c, vehicle, status), ratio)),
+    ),
+  ]
+  sprites.forEach((sprite, i) => context.drawImage(sprite, i * size, 0))
+  return atlas
 }
 
 function compile(gl: WebGL2RenderingContext, type: GLenum, source: string): WebGLShader {
@@ -181,13 +239,12 @@ function attribute(
   name: string,
   size: number,
   type: GLenum,
-): WebGLBuffer {
-  const buffer = gl.createBuffer()
+  stride: number,
+  offset: number,
+) {
   const location = gl.getAttribLocation(program, name)
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
   gl.enableVertexAttribArray(location)
-  gl.vertexAttribPointer(location, size, type, false, 0, 0)
-  return buffer
+  gl.vertexAttribPointer(location, size, type, false, stride, offset)
 }
 
 /** Web Mercator in MapLibre's world units: the whole world is 0..1 on both axes. */
@@ -197,9 +254,4 @@ function mercatorX(lng: number): number {
 
 function mercatorY(lat: number): number {
   return (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))) / 360
-}
-
-function rgb(hex: string): [number, number, number] {
-  const value = Number.parseInt(hex.slice(1), 16)
-  return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255]
 }

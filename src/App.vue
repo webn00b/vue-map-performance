@@ -98,7 +98,13 @@ onMounted(() => {
     style: 'https://tiles.openfreemap.org/styles/positron',
     center: TORONTO.center,
     zoom: 10.5,
+    // Headings are drawn relative to screen north, so the map stays north-up.
+    dragRotate: false,
+    pitchWithRotate: false,
+    maxPitch: 0,
   })
+  map.touchZoomRotate.disableRotation()
+  map.keyboard.disableRotation()
   map.on('load', () => {
     mapReady.value = true
     // A tile that failed while loading doesn't matter once the map is up.

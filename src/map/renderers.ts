@@ -1,9 +1,18 @@
 import type { FeatureCollection, Point } from 'geojson'
-import { COLORS, STATUS_COLORS } from '../colors'
+import { COLORS } from '../colors'
 import type { RenderMode } from '../settings'
-import { Status } from '../simulation/fleet'
 import type { FleetView } from '../state/useCouriers'
 import { createGpuRenderer } from './gpuRenderer'
+import {
+  badgeKey,
+  courierKey,
+  createSprite,
+  drawCourier,
+  parseCourierKey,
+  pointerKey,
+  SPRITE_SIZE,
+  spriteUrl,
+} from './icons'
 import {
   Marker,
   type GeoJSONFeatureDiff,
@@ -37,36 +46,58 @@ export function createRenderer(
  * with thousands of them.
  */
 function createDomRenderer(map: MapLibreMap, view: FleetView, onApplied: () => void): Renderer {
-  const markers: Marker[] = []
-  const statuses: number[] = []
+  interface DomCourier {
+    marker: Marker
+    badge: HTMLImageElement
+    pointer: HTMLImageElement
+    badgeKey?: string
+    pointerKey?: string
+    heading?: number
+  }
+  const couriers: DomCourier[] = []
 
   const resize = () => {
-    while (markers.length > view.count()) {
-      markers.pop()!.remove()
-      statuses.pop()
-    }
-    while (markers.length < view.count()) {
+    while (couriers.length > view.count()) couriers.pop()!.marker.remove()
+    while (couriers.length < view.count()) {
       const element = document.createElement('div')
       element.className = 'courier-marker'
-      markers.push(new Marker({ element }).setLngLat([0, 0]).addTo(map))
-      statuses.push(-1)
+      element.style.width = element.style.height = `${SPRITE_SIZE}px`
+      const pointer = element.appendChild(document.createElement('img'))
+      const badge = element.appendChild(document.createElement('img'))
+      couriers.push({
+        marker: new Marker({ element }).setLngLat([0, 0]).addTo(map),
+        badge,
+        pointer,
+      })
     }
   }
 
   const place = (i: number) => {
-    const marker = markers[i]!
-    marker.setLngLat([view.lng(i), view.lat(i)])
+    const courier = couriers[i]!
+    courier.marker.setLngLat([view.lng(i), view.lat(i)])
+    // Touch the DOM only for what actually changed.
     const status = view.status(i)
-    if (statuses[i] !== status) {
-      marker.getElement().style.background = STATUS_COLORS[status]
-      statuses[i] = status
+    const badge = badgeKey(view.vehicle(i), status)
+    if (courier.badgeKey !== badge) {
+      courier.badge.src = spriteUrl(badge)
+      courier.badgeKey = badge
+    }
+    const pointer = pointerKey(status)
+    if (courier.pointerKey !== pointer) {
+      courier.pointer.src = spriteUrl(pointer)
+      courier.pointerKey = pointer
+    }
+    const heading = view.heading(i)
+    if (courier.heading !== heading) {
+      courier.pointer.style.transform = `rotate(${heading}deg)`
+      courier.heading = heading
     }
   }
 
   const update = (changed: Uint32Array | null) => {
     resize()
     if (changed) changed.forEach(place)
-    else for (let i = 0; i < markers.length; i++) place(i)
+    else for (let i = 0; i < couriers.length; i++) place(i)
     onApplied()
   }
   update(null)
@@ -74,8 +105,8 @@ function createDomRenderer(map: MapLibreMap, view: FleetView, onApplied: () => v
   return {
     update,
     destroy() {
-      markers.forEach((marker) => marker.remove())
-      markers.length = 0
+      couriers.forEach(({ marker }) => marker.remove())
+      couriers.length = 0
     },
   }
 }
@@ -131,24 +162,25 @@ function createWebglRenderer(
     })
   }
 
+  // Sprites are drawn the first time a tile asks for one.
+  const onImageMissing = ({ id }: { id: string }) => {
+    const courier = parseCourierKey(id)
+    if (!courier) return
+    const sprite = createSprite((context) => drawCourier(context, ...courier))
+    const pixels = sprite.getContext('2d')!.getImageData(0, 0, sprite.width, sprite.height)
+    map.addImage(id, pixels, { pixelRatio: sprite.width / SPRITE_SIZE })
+  }
+  map.on('styleimagemissing', onImageMissing)
   map.addLayer({
     id: 'couriers',
-    type: 'circle',
+    type: 'symbol',
     source: SOURCE,
     filter: ['!', ['has', 'point_count']],
-    paint: {
-      'circle-radius': 4,
-      'circle-color': [
-        'match',
-        ['get', 'status'],
-        Status.Delivering,
-        STATUS_COLORS[Status.Delivering],
-        Status.Returning,
-        STATUS_COLORS[Status.Returning],
-        STATUS_COLORS[Status.Idle],
-      ],
-      'circle-stroke-width': 1,
-      'circle-stroke-color': COLORS.surface,
+    layout: {
+      'icon-image': ['get', 'icon'],
+      // Overlap and placement checks would hide couriers and cost time on every update.
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
     },
   })
 
@@ -158,9 +190,9 @@ function createWebglRenderer(
     if (event.sourceId === SOURCE && event.sourceDataType === 'content') onApplied()
   }
   map.on('sourcedata', onSourceData)
-  // Last status sent per courier, so diffs only carry the property when it
-  // changed. Clusters never use diffs, so they skip it.
-  let sentStatuses = cluster ? new Uint8Array() : statusesOf(view)
+  // Last icon sent per courier, so diffs only carry it when it changed.
+  // Clusters never use diffs, so they skip it.
+  let sentIcons = cluster ? [] : iconsOf(view)
   // While MapLibre is still processing a full rebuild, newer ones would be
   // thrown away, so just remember that another one is due.
   let rebuilding = false
@@ -172,7 +204,7 @@ function createWebglRenderer(
       return
     }
     rebuilding = true
-    if (!cluster) sentStatuses = statusesOf(view)
+    if (!cluster) sentIcons = iconsOf(view)
     void source.setData(toFeatureCollection(view)).finally(() => {
       rebuilding = false
       if (rebuildAgain) {
@@ -192,14 +224,14 @@ function createWebglRenderer(
       }
       void source.updateData({
         update: Array.from(changed, (i) => {
-          const status = view.status(i)
           const diff: GeoJSONFeatureDiff = {
             id: i,
             newGeometry: { type: 'Point', coordinates: [view.lng(i), view.lat(i)] },
           }
-          if (sentStatuses[i] !== status) {
-            sentStatuses[i] = status
-            diff.addOrUpdateProperties = [{ key: 'status', value: status }]
+          const icon = iconOf(view, i)
+          if (sentIcons[i] !== icon) {
+            sentIcons[i] = icon
+            diff.addOrUpdateProperties = [{ key: 'icon', value: icon }]
           }
           return diff
         }),
@@ -207,14 +239,18 @@ function createWebglRenderer(
     },
     destroy() {
       map.off('sourcedata', onSourceData)
+      map.off('styleimagemissing', onImageMissing)
       for (const id of LAYERS) if (map.getLayer(id)) map.removeLayer(id)
       if (map.getSource(SOURCE)) map.removeSource(SOURCE)
     },
   }
 }
 
-function statusesOf(view: FleetView): Uint8Array {
-  return Uint8Array.from({ length: view.count() }, (_, i) => view.status(i))
+const iconOf = (view: FleetView, i: number) =>
+  courierKey(view.vehicle(i), view.status(i), view.heading(i))
+
+function iconsOf(view: FleetView): string[] {
+  return Array.from({ length: view.count() }, (_, i) => iconOf(view, i))
 }
 
 function toFeatureCollection(view: FleetView): FeatureCollection<Point> {
@@ -224,7 +260,7 @@ function toFeatureCollection(view: FleetView): FeatureCollection<Point> {
       type: 'Feature',
       id: i,
       geometry: { type: 'Point', coordinates: [view.lng(i), view.lat(i)] },
-      properties: { status: view.status(i) },
+      properties: { icon: iconOf(view, i) },
     }
   }
   return { type: 'FeatureCollection', features }

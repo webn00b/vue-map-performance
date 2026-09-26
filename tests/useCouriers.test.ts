@@ -7,6 +7,8 @@ const snapshot = (): FeedMessage => ({
   type: 'snapshot',
   positions: Float32Array.from([37.1, 55.1, 37.2, 55.2, 37.3, 55.3]),
   statuses: Uint8Array.from([0, 1, 2]),
+  vehicles: Uint8Array.from([2, 1, 0]),
+  headings: Uint8Array.from([0, 64, 128]),
 })
 
 const delta = (index: number, lng: number): FeedMessage => ({
@@ -14,10 +16,17 @@ const delta = (index: number, lng: number): FeedMessage => ({
   indices: Uint32Array.from([index]),
   positions: Float32Array.from([lng, 56]),
   statuses: Uint8Array.from([1]),
+  headings: Uint8Array.from([192]),
 })
 
 const read = (view: FleetView) =>
-  Array.from({ length: view.count() }, (_, i) => [view.lng(i), view.lat(i), view.status(i)])
+  Array.from({ length: view.count() }, (_, i) => [
+    view.lng(i),
+    view.lat(i),
+    view.status(i),
+    view.vehicle(i),
+    view.heading(i),
+  ])
 
 describe.each<StateMode>(['deep', 'shallow'])('%s store', (mode) => {
   test('applies a snapshot and then deltas', async () => {
@@ -28,9 +37,9 @@ describe.each<StateMode>(['deep', 'shallow'])('%s store', (mode) => {
     await store.flush()
 
     expect(read(store.view)).toEqual([
-      [expect.closeTo(37.1), expect.closeTo(55.1), 0],
-      [38, 56, 1],
-      [expect.closeTo(37.3), expect.closeTo(55.3), 2],
+      [expect.closeTo(37.1), expect.closeTo(55.1), 0, 2, 0],
+      [38, 56, 1, 1, 270],
+      [expect.closeTo(37.3), expect.closeTo(55.3), 2, 0, 180],
     ])
   })
 

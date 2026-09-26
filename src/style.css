@@ -19,9 +19,9 @@ body,
   margin: 0;
 }
 
-.courier-marker {
-  width: 8px;
-  height: 8px;
-  border: 1px solid var(--surface);
-  border-radius: 50%;
+.courier-marker img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }

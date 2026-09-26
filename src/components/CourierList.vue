@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { Status } from '../simulation/fleet'
 import type { FleetView } from '../state/useCouriers'
-import { STATUS_COLORS } from '../colors'
+import { badgeKey, spriteUrl, VEHICLE_NAMES } from '../map/icons'
 
 const props = defineProps<{ view: FleetView }>()
 const emit = defineEmits<{ select: [index: number] }>()
@@ -36,7 +36,11 @@ const virtualizer = useVirtualizer(
         :style="{ transform: `translateY(${row.start}px)` }"
         @click="emit('select', row.index)"
       >
-        <span class="dot" :style="{ background: STATUS_COLORS[view.status(row.index)] }" />
+        <img
+          class="badge"
+          :src="spriteUrl(badgeKey(view.vehicle(row.index), view.status(row.index)))"
+          :alt="VEHICLE_NAMES[view.vehicle(row.index)]"
+        />
         <span class="id">#{{ row.index + 1 }}</span>
         <span class="status">{{ STATUS_NAMES[view.status(row.index)] }}</span>
         <span class="coords">
@@ -75,10 +79,10 @@ const virtualizer = useVirtualizer(
   background: var(--hover);
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.badge {
+  width: 26px;
+  height: 26px;
+  margin: 0 -5px;
   flex: none;
 }
 

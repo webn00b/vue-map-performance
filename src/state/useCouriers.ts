@@ -1,7 +1,7 @@
 import { nextTick, ref, shallowRef, triggerRef, watch, type WatchStopHandle } from 'vue'
 import type { StateMode } from '../settings'
-import type { FeedMessage } from '../simulation/feed'
-import type { Status } from '../simulation/fleet'
+import { unpackHeading, type FeedMessage } from '../simulation/feed'
+import type { Status, Vehicle } from '../simulation/fleet'
 
 /** Read access that renderers and the list use, regardless of how the state is stored. */
 export interface FleetView {
@@ -9,6 +9,9 @@ export interface FleetView {
   lng(i: number): number
   lat(i: number): number
   status(i: number): Status
+  vehicle(i: number): Vehicle
+  /** Degrees clockwise from north. */
+  heading(i: number): number
 }
 
 /** `changed` lists the couriers that moved, or is `null` when anything may have changed. */
@@ -98,6 +101,8 @@ interface Courier {
   lng: number
   lat: number
   status: Status
+  vehicle: Vehicle
+  heading: number
 }
 
 function createDeepStore(): Backend {
@@ -109,6 +114,8 @@ function createDeepStore(): Backend {
       lng: (i) => couriers.value[i]!.lng,
       lat: (i) => couriers.value[i]!.lat,
       status: (i) => couriers.value[i]!.status,
+      vehicle: (i) => couriers.value[i]!.vehicle,
+      heading: (i) => couriers.value[i]!.heading,
     },
     apply(messages) {
       for (const message of messages) {
@@ -118,6 +125,8 @@ function createDeepStore(): Backend {
             lng: message.positions[i * 2]!,
             lat: message.positions[i * 2 + 1]!,
             status: status as Status,
+            vehicle: message.vehicles[i] as Vehicle,
+            heading: unpackHeading(message.headings[i]!),
           }))
           continue
         }
@@ -126,6 +135,7 @@ function createDeepStore(): Backend {
           courier.lng = message.positions[k * 2]!
           courier.lat = message.positions[k * 2 + 1]!
           courier.status = message.statuses[k] as Status
+          courier.heading = unpackHeading(message.headings[k]!)
         })
       }
     },
@@ -140,7 +150,12 @@ function createDeepStore(): Backend {
 }
 
 function createShallowStore(): Backend {
-  const state = shallowRef({ positions: new Float32Array(), statuses: new Uint8Array() })
+  const state = shallowRef({
+    positions: new Float32Array(),
+    statuses: new Uint8Array(),
+    vehicles: new Uint8Array(),
+    headings: new Uint8Array(),
+  })
   const listeners = new Set<ChangeListener>()
   // Deduplicates couriers that report more than once within a frame without allocating.
   let seen = new Uint8Array()
@@ -153,6 +168,8 @@ function createShallowStore(): Backend {
       lng: (i) => state.value.positions[i * 2]!,
       lat: (i) => state.value.positions[i * 2 + 1]!,
       status: (i) => state.value.statuses[i] as Status,
+      vehicle: (i) => state.value.vehicles[i] as Vehicle,
+      heading: (i) => unpackHeading(state.value.headings[i]!),
     },
     apply(messages) {
       let last = -1
@@ -161,12 +178,13 @@ function createShallowStore(): Backend {
       })
       if (last !== -1) {
         const snapshot = messages[last] as Extract<FeedMessage, { type: 'snapshot' }>
-        state.value = { positions: snapshot.positions, statuses: snapshot.statuses }
+        const { positions, statuses, vehicles, headings } = snapshot
+        state.value = { positions, statuses, vehicles, headings }
         seen = new Uint8Array(snapshot.statuses.length)
         changed = new Uint32Array(snapshot.statuses.length)
       }
 
-      const { positions, statuses } = state.value
+      const { positions, statuses, headings } = state.value
       let length = 0
       for (const message of messages.slice(last + 1)) {
         if (message.type !== 'delta') continue
@@ -174,6 +192,7 @@ function createShallowStore(): Backend {
           positions[id * 2] = message.positions[k * 2]!
           positions[id * 2 + 1] = message.positions[k * 2 + 1]!
           statuses[id] = message.statuses[k]!
+          headings[id] = message.headings[k]!
           if (!seen[id]) {
             seen[id] = 1
             changed[length++] = id

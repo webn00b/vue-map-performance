@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import { TORONTO } from '../src/simulation/city'
-import { createFleet, MAX_SPEED, METERS_PER_DEGREE, stepFleet } from '../src/simulation/fleet'
+import {
+  createFleet,
+  MAX_SPEED,
+  METERS_PER_DEGREE,
+  SPEEDS,
+  stepFleet,
+  type Vehicle,
+} from '../src/simulation/fleet'
 
 describe('fleet', () => {
   test('the same seed gives the same fleet', () => {
@@ -56,6 +63,37 @@ describe('fleet', () => {
       const dLng = (fleet.positions[i * 2]! - before[i * 2]!) * metersPerLng
       // Allow a metre for float32 rounding and latitude spread.
       expect(Math.hypot(dLat, dLng)).toBeLessThan(MAX_SPEED + 1)
+    }
+  })
+
+  test('each vehicle type keeps to its own speed range', () => {
+    const fleet = createFleet(300, 11, TORONTO)
+    for (let i = 0; i < fleet.count; i++) {
+      const [min, max] = SPEEDS[fleet.vehicles[i] as Vehicle]
+      expect(fleet.speeds[i]).toBeGreaterThanOrEqual(min - 1e-4)
+      expect(fleet.speeds[i]).toBeLessThanOrEqual(max + 1e-4)
+    }
+    expect(new Set(fleet.vehicles).size).toBe(3)
+  })
+
+  test('the heading points at the target', () => {
+    const fleet = createFleet(200, 13, TORONTO)
+    for (let step = 0; step < 30; step++) stepFleet(fleet, 60)
+    const before = fleet.positions.slice()
+    const headings = fleet.headings.slice()
+    const statuses = fleet.statuses.slice()
+    // Long enough that float32 rounding of the positions doesn't skew the bearing.
+    stepFleet(fleet, 20)
+
+    for (let i = 0; i < fleet.count; i++) {
+      // A courier that arrived picked a new target and status mid-step.
+      if (fleet.statuses[i] !== statuses[i]) continue
+      const dLng = fleet.positions[i * 2]! - before[i * 2]!
+      const dLat = fleet.positions[i * 2 + 1]! - before[i * 2 + 1]!
+      const lat = (before[i * 2 + 1]! * Math.PI) / 180
+      const bearing = (Math.atan2(dLng * Math.cos(lat), dLat) * 180) / Math.PI
+      expect(fleet.headings[i]).toBe(headings[i])
+      expect(Math.abs(((bearing - headings[i]! + 540) % 360) - 180)).toBeLessThan(1)
     }
   })
 })
