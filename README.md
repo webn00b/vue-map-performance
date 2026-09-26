@@ -6,7 +6,7 @@ Thousands of couriers moving on a map in Vue 3, with live numbers for what keeps
 
 **[Open the demo](https://webn00b.github.io/vue-map-performance/)**
 
-![5,000 couriers on the map with the settings and live metrics panels](docs/screenshot.jpg)
+![5,000 couriers on the map with the settings and live metrics panels](docs/screenshot.webp)
 
 ## What you can switch
 
