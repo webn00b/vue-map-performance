@@ -19,7 +19,15 @@ function level(value: number, good: number, bad: number, higherIsBetter = false)
 </script>
 
 <template>
-  <section class="metrics" data-testid="metrics">
+  <section
+    class="metrics"
+    data-testid="metrics"
+    :data-fps="metrics.fps"
+    :data-fps-low="metrics.fpsLow"
+    :data-long-task-ms="metrics.longTaskMs"
+    :data-flush-ms="metrics.flushMs"
+    :data-flush-max-ms="metrics.flushMaxMs"
+  >
     <div class="metric">
       <div class="name">FPS <span class="muted">now / lowest</span></div>
       <div class="value" :class="fpsLevel">
