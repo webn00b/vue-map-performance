@@ -6,6 +6,8 @@ export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
   plugins: [vue()],
   worker: { format: 'es' },
+  // MapLibre alone is about 1 MB minified.
+  build: { chunkSizeWarningLimit: 1200 },
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'happy-dom',
